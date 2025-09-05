@@ -9,10 +9,14 @@ const UserLogo = () => {
     return <img src="/logo.png" alt="CivicConnect Logo" className="splash-logo" />;
 };
 
+const SearchIcon = () => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M11 19C15.4183 19 19 15.4183 19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19Z" stroke="#111827" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M21 21L16.65 16.65" stroke="#111827" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> );
+const ProfileIcon = ({ active }) => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> );
+
+// ... (Rest of the icons)
+
 const HomeIcon = ({ active }) => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M9 22V12h6v10" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> );
 const IssuesIcon = ({ active }) => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> );
 const LeaderboardIcon = ({ active }) => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 20V10M18 20V4M6 20v-4" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> );
-const ProfileIcon = ({ active }) => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> );
 const PlusIcon = () => ( <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg> );
 
 // --- MOCK DATA & API SERVICES ---
@@ -71,9 +75,10 @@ const MapComponent = ({ issues }) => {
 
 
 // --- SCREENS & COMPONENTS ---
-const HomeScreen = ({ issues }) => {
+const HomeScreen = ({ issues, setActiveScreen }) => {
     const [selectedIssue, setSelectedIssue] = useState(null);
 
+    // This sub-component for the card is correct and stays inside HomeScreen
     const IssueCard = ({ issue, onClick }) => (
         <div className="carouselCard" onClick={onClick}>
             <img src={issue.image} className="cardImage" alt={issue.title} />
@@ -88,17 +93,27 @@ const HomeScreen = ({ issues }) => {
 
     return (
         <div className="container">
-            <div className="header">
-                <h1 className="headerTitle">My Community</h1>
-                <p className="headerSubtitle">Dahmi Kalan, Rajasthan</p>
+            {/* THIS IS THE NEW HEADER WE ADDED */}
+            <div className="appHeader">
+                <div className="headerIcon">
+                    <SearchIcon />
+                </div>
+                <h2 className="headerLogoTitle">CivicConnect</h2>
+                <div className="headerIcon" onClick={() => setActiveScreen('Profile')}>
+                    <ProfileIcon active={false} />
+                </div>
             </div>
+
             <MapComponent issues={issues} />
+
+            {/* THIS IS THE SECTION THAT MUST BE KEPT */}
             <div className="carouselContainer">
                 <h2 className="carouselTitle">Trending Near You</h2>
                 <div className="carousel">
                     {issues?.filter(i => i.status !== 'Resolved').map(issue => <IssueCard key={issue.id} issue={issue} onClick={() => setSelectedIssue(issue)} />)}
                 </div>
             </div>
+            
             {selectedIssue && <IssueModal issue={selectedIssue} onClose={() => setSelectedIssue(null)} />}
         </div>
     );
@@ -313,11 +328,13 @@ const AppContent = () => {
 
     const renderScreen = () => { 
         switch (activeScreen) { 
-            case 'Home': return <HomeScreen issues={issues} />; 
+            // MODIFIED: Pass setActiveScreen to HomeScreen
+            case 'Home': return <HomeScreen issues={issues} setActiveScreen={setActiveScreen} />; 
             case 'My Issues': return <MyIssuesScreen allIssues={issues} />; 
             case 'Leaderboard': return <LeaderboardScreen data={leaderboardData} />; 
             case 'Profile': return <ProfileScreen />; 
-            default: return <HomeScreen issues={issues} />; 
+            // MODIFIED: Pass setActiveScreen to HomeScreen in default case too
+            default: return <HomeScreen issues={issues} setActiveScreen={setActiveScreen} />; 
         } 
     };
     
@@ -336,7 +353,7 @@ const AppContent = () => {
                 <NavItem screenName="Home" Icon={HomeIcon} label="Home" />
                 <NavItem screenName="My Issues" Icon={IssuesIcon} label="My Issues" />
                 <NavItem screenName="Leaderboard" Icon={LeaderboardIcon} label="Ranks" />
-                <NavItem screenName="Profile" Icon={ProfileIcon} label="Profile" />
+                {/* REMOVED: Profile tab from the bottom navigation */}
             </div>
             {showAddIssueModal && <AddIssueModal onClose={() => setShowAddIssueModal(false)} />}
         </div>
