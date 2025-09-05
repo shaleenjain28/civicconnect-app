@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './style.css';
+import "leaflet.heat";
+
 
 // --- ICONS & LOGO ---
 const UserLogo = () => {
@@ -192,38 +194,79 @@ const AppContent = () => {
         });
     }, []);
 
-    const MyIssuesScreen = ({ allIssues }) => { 
-        const [filter, setFilter] = useState('Active'); 
-        const userIssues = allIssues?.filter(i => i.reporter === 'user1');
-        const filteredIssues = userIssues?.filter(issue => filter === 'All' || issue.status === filter);
-        const filters = ['Active', 'In Progress', 'Pending', 'Resolved']; 
-        
-        const IssueListItem = ({item}) => ( 
-            <div className="issueListItem"> 
-                <img src={item.image} className="issueListImage" alt={item.title}/> 
-                <div className="issueListInfo"> 
-                    <div> 
-                        <p className="issueListTitle">{item.title}</p> 
-                        <p className="issueListCategory">{item.category}</p> 
-                    </div> 
-                    <div className="issueListFooter"> 
-                        <span className={`modalStatus status${item.status.replace(/\s+/g, '')}`}>{item.status}</span> 
-                        <span className="issueListUpvotes">{item.upvotes} upvotes</span> 
-                    </div> 
+   const MyIssuesScreen = ({ allIssues }) => { 
+    const [statusFilter, setStatusFilter] = useState('Active'); 
+    const [categoryFilter, setCategoryFilter] = useState('Filter'); // Default text = Filter
+
+    const statusFilters = ['Active', 'In Progress', 'Pending', 'Resolved']; 
+    const categoryFilters = ['Filter', 'All', 'Roads', 'Traffic', 'Utilities', 'Waste'];
+
+    const userIssues = allIssues?.filter(i => i.reporter === 'user1');
+    const filteredIssues = userIssues?.filter(issue => 
+        (statusFilter === 'All' || issue.status === statusFilter) &&
+        (categoryFilter === 'Filter' || categoryFilter === 'All' || issue.category === categoryFilter)
+    );
+
+    const IssueListItem = ({ item }) => (
+        <div className="issueListItem"> 
+            <img src={item.image} className="issueListImage" alt={item.title}/> 
+            <div className="issueListInfo"> 
+                <div> 
+                    <p className="issueListTitle">{item.title}</p> 
+                    <p className="issueListCategory">{item.category}</p> 
+                </div> 
+                <div className="issueListFooter"> 
+                    <span className={`modalStatus status${item.status.replace(/\s+/g, '')}`}>{item.status}</span> 
+                    <span className="issueListUpvotes">{item.upvotes} upvotes</span> 
                 </div> 
             </div> 
-        ); 
-        
-        return ( 
-            <div className="container"> 
-                <div className="header"><h1 className="headerTitle">My Reported Issues</h1></div> 
-                <div className="filterContainer"> 
-                    {filters.map(f => <button key={f} className={`filterButton ${filter === f ? 'filterButtonActive' : ''}`} onClick={() => setFilter(f)}><span className={`filterButtonText ${filter === f ? 'filterButtonTextActive' : ''}`}>{f}</span></button>)} 
-                </div> 
-                <div className="listScrollView">{filteredIssues?.map(item => <IssueListItem key={item.id} item={item} />)}</div> 
-            </div> 
-        ); 
-    };
+        </div> 
+    );
+
+    return (
+        <div className="container">
+            <div className="header">
+                <h1 className="headerTitle">My Reported Issues</h1>
+            </div>
+
+            {/* ✅ Status Filter Row */}
+            <div className="filterContainer">
+                {statusFilters.map(f => (
+                    <button 
+                        key={f} 
+                        className={`filterButton ${statusFilter === f ? 'filterButtonActive' : ''}`} 
+                        onClick={() => setStatusFilter(f)}
+                    >
+                        <span className={`filterButtonText ${statusFilter === f ? 'filterButtonTextActive' : ''}`}>{f}</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* 🔽 Purple Filter Dropdown on new line */}
+            <div className="dropdownWrapper">
+                <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="filterDropdown"
+                >
+                    {categoryFilters.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                    ))}
+                </select>
+            </div>
+
+            {/* List */}
+            <div className="listScrollView">
+                {filteredIssues?.length > 0 ? (
+                    filteredIssues.map(item => <IssueListItem key={item.id} item={item} />)
+                ) : (
+                    <p style={{textAlign: 'center', marginTop: 20}}>No issues found.</p>
+                )}
+            </div>
+        </div>
+    );
+};
+
 
     const LeaderboardScreen = ({ data }) => { 
         const LeaderboardCard = ({item, rank}) => ( 

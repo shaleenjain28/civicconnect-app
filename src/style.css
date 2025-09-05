@@ -142,3 +142,32 @@ body {
 @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; visibility: hidden; } }
 .splash-logo { max-width: 250px; }
 
+.dropdownWrapper {
+  display: flex;
+  justify-content: flex-end; /* right aligned */
+  padding: 0 15px;
+  margin-bottom: 10px;
+}
+
+.filterDropdown {
+  padding: 8px 16px;
+  border-radius: 20px;
+  background-color: #4F46E5; /* purple */
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
+}
+
+.filterDropdown:hover {
+  background-color: #4338CA; /* darker purple */
+}
+
+.filterDropdown option {
+  color: #111827;
+  font-weight: 500;
+}
+
