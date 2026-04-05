@@ -387,7 +387,7 @@ body {
 
 /* Keep the splash-screen version large */
 .splash-screen .splash-logo {
-  height: 140px;
+  height: 600px;
   width: auto;
   max-width: 70%;
   object-fit: contain;
