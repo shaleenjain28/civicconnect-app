@@ -426,3 +426,302 @@ body {
   .headerTopLeftLogo { height: 30px; margin-right: 6px; }
   .appHeader { padding: 10px 12px; }
 }
+
+/* ======================================================
+   INSIGHTS SCREEN STYLES
+   ====================================================== */
+
+/* Tab bar */
+.insightsTabs {
+  display: flex;
+  padding: 8px 12px;
+  gap: 6px;
+  background: #fff;
+  border-bottom: 1px solid #E5E7EB;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.insightsTab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 24px;
+  border: none;
+  background: #F3F4F6;
+  color: #6B7280;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  font-family: 'Inter', sans-serif;
+}
+
+.insightsTab:hover {
+  background: #E5E7EB;
+}
+
+.insightsTabActive {
+  background: #F97316;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+}
+
+.insightsTabIcon {
+  font-size: 14px;
+}
+
+.insightsTabLabel {
+  font-size: 13px;
+}
+
+/* Content area */
+.insightsContent {
+  padding-bottom: 20px;
+}
+
+.insightsHeading {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111827;
+  margin: 20px 0 4px;
+  text-align: center;
+}
+
+.insightsSubheading {
+  font-size: 13px;
+  color: #6B7280;
+  text-align: center;
+  margin: 0 0 20px;
+}
+
+/* Card */
+.insightsCard {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid #F3F4F6;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.insightsCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.insightsCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.insightsCardLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.insightsCardTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.insightsCardSubtitle {
+  font-size: 12px;
+  color: #6B7280;
+  margin: 2px 0 0;
+}
+
+/* Rank badge */
+.insightsRankBadge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #FEF3C7, #FBBF24);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 0;
+}
+
+.insightsRankDanger {
+  background: linear-gradient(135deg, #FEE2E2, #F87171);
+}
+
+.insightsRankIcon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.insightsRankText {
+  font-size: 10px;
+  font-weight: 800;
+  color: #92400E;
+  line-height: 1;
+}
+
+.insightsRankDanger .insightsRankText {
+  color: #991B1B;
+}
+
+/* Score badge */
+.insightsScoreBadge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #FEF3C7;
+  color: #92400E;
+  font-size: 14px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.insightsScoreGreen {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+/* Stats row */
+.insightsStatsRow {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.insightsStat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insightsStatIcon {
+  font-size: 14px;
+}
+
+.insightsStatValue {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.insightsStatLabel {
+  display: block;
+  font-size: 11px;
+  color: #6B7280;
+  line-height: 1.2;
+}
+
+/* Progress bar */
+.insightsBarContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.insightsBarLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.insightsBarValue {
+  font-size: 12px;
+  font-weight: 700;
+  color: #059669;
+}
+
+.insightsBar {
+  height: 8px;
+  background: #F3F4F6;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.insightsBarFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s ease;
+}
+
+.insightsBarDanger {
+  background: linear-gradient(90deg, #EF4444, #F87171) !important;
+}
+
+/* Impact row (NGOs) */
+.insightsImpactRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #F0FDF4;
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.insightsImpactLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.insightsImpactValue {
+  font-size: 13px;
+  font-weight: 700;
+  color: #059669;
+}
+
+/* Cities specific */
+.insightsCityHighPriority {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.insightsCityCount {
+  font-size: 22px;
+  font-weight: 800;
+  color: #EF4444;
+  line-height: 1;
+}
+
+.insightsCityLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #EF4444;
+}
+
+.insightsSeverityRow {
+  margin-top: 4px;
+}
+
+.insightsDangerText {
+  color: #EF4444 !important;
+}
+
+.insightsCityFooter {
+  font-size: 12px;
+  color: #6B7280;
+  text-align: center;
+  margin: 10px 0 0;
+}
+
+/* Insights nav label active - orange */
+.navLabelInsights {
+  color: #F97316;
+}

@@ -23,10 +23,18 @@ export const LeaderboardIcon = ({ active }) => (
     </svg>
 );
 
+export const InsightsIcon = ({ active }) => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke={active ? '#F97316' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 8v4l3 3" stroke={active ? '#F97316' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M16.5 3.5l1 2M7.5 3.5l-1 2" stroke={active ? '#F97316' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+);
+
 export const ProfileIcon = ({ active }) => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke={active ? '#4F46E5' : '#111827'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={active ? '#4F46E5' : '#111827'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 11a4 4 0 100-8 4 4 0 000 8z" stroke={active ? '#4F46E5' : '#6B7280'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
 );
 

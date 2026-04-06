@@ -3,9 +3,9 @@ import { storageService } from '../services/storageService';
 import AddIssueModal from './modals/AddIssueModal';
 import HomeScreen from './screens/HomeScreen';
 import MyIssuesScreen from './screens/MyIssuesScreen';
-import LeaderboardScreen from './screens/LeaderboardScreen';
+import InsightsScreen from './screens/InsightsScreen';
 import ProfileScreen from './screens/ProfileScreen';
-import { HomeIcon, IssuesIcon, LeaderboardIcon, PlusIcon } from './icons/Icons';
+import { HomeIcon, IssuesIcon, InsightsIcon, ProfileIcon, PlusIcon } from './icons/Icons';
 
 const AppContent = () => {
     const [activeScreen, setActiveScreen] = useState('Home');
@@ -62,8 +62,8 @@ const AppContent = () => {
                 return <HomeScreen issues={appData.issues} handleUpvote={handleUpvote} setActiveScreen={setActiveScreen} />;
             case 'My Issues':
                 return <MyIssuesScreen allIssues={appData.issues} />;
-            case 'Leaderboard':
-                return <LeaderboardScreen data={appData.leaderboard} />;
+            case 'Insights':
+                return <InsightsScreen />;
             case 'Profile':
                 return <ProfileScreen />;
             default:
@@ -87,7 +87,8 @@ const AppContent = () => {
             <div className="navBar">
                 <NavItem screenName="Home" Icon={HomeIcon} label="Home" />
                 <NavItem screenName="My Issues" Icon={IssuesIcon} label="My Issues" />
-                <NavItem screenName="Leaderboard" Icon={LeaderboardIcon} label="Ranks" />
+                <NavItem screenName="Insights" Icon={InsightsIcon} label="Insights" />
+                <NavItem screenName="Profile" Icon={ProfileIcon} label="Profile" />
             </div>
             {showAddIssueModal && <AddIssueModal onClose={() => setShowAddIssueModal(false)} onAddIssue={handleAddIssue} />}
         </div>
