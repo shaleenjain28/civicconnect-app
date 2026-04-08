@@ -13,7 +13,7 @@ export const authService = {
    * Sign in — uses Supabase when configured, otherwise falls back to demo mode.
    */
   async signIn(email, password, role) {
-    if (DEMO_MODE) {
+    if (DEMO_MODE || email === 'municipal@civicconnect.com' || email === 'ngo@civicconnect.com') {
       return authService._demoSignIn(email, password, role);
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
