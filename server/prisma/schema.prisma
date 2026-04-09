@@ -1,0 +1,124 @@
+// ─── Prisma Schema ───
+// This file defines the database structure. Prisma auto-generates:
+// 1. SQL migrations (prisma migrate dev)
+// 2. TypeScript client with full type safety (prisma generate)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── User table ───
+// Synced with Supabase Auth — id matches Supabase user UUID
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?  @unique
+  name      String
+  avatarUrl String?  @map("avatar_url")
+  role      String   @default("citizen") // citizen | municipal | ngo
+  language  String   @default("en")      // en | hi | gu
+  createdAt DateTime @default(now())     @map("created_at")
+
+  issues        Issue[]
+  votes         Vote[]
+  comments      Comment[]
+  statusChanges StatusHistory[]
+
+  @@map("users")
+}
+
+// ─── Department table ───
+// 8 government departments for issue categorization
+model Department {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  slug        String  @unique
+  icon        String
+  color       String
+  description String?
+
+  issues Issue[]
+
+  @@map("departments")
+}
+
+// ─── Issue table ───
+// Core entity — citizen-reported civic problems
+model Issue {
+  id           Int      @id @default(autoincrement())
+  userId       String   @map("user_id")
+  title        String
+  description  String
+  departmentId Int      @map("department_id")
+  scope        String   @default("local")    // local | city | state | country
+  status       String   @default("pending")  // pending | in_progress | resolved
+  criticality  String   @default("medium")   // critical | high | medium | low
+  latitude     Float
+  longitude    Float
+  locationText String?  @map("location_text")
+  imageUrl     String?  @map("image_url")
+  upvoteCount  Int      @default(0)          @map("upvote_count")
+  createdAt    DateTime @default(now())      @map("created_at")
+  resolvedAt   DateTime?                     @map("resolved_at")
+
+  user          User           @relation(fields: [userId], references: [id])
+  department    Department     @relation(fields: [departmentId], references: [id])
+  votes         Vote[]
+  comments      Comment[]
+  statusHistory StatusHistory[]
+
+  @@map("issues")
+}
+
+// ─── Vote table ───
+// One vote per user per issue (unique constraint prevents double-voting)
+model Vote {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  issueId   Int      @map("issue_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, issueId]) // Prevents duplicate votes
+  @@map("votes")
+}
+
+// ─── Comment table ───
+// Discussion thread on each issue
+model Comment {
+  id         Int      @id @default(autoincrement())
+  issueId    Int      @map("issue_id")
+  userId     String   @map("user_id")
+  body       String
+  authorType String   @default("citizen") @map("author_type") // citizen | authority
+  createdAt  DateTime @default(now())     @map("created_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
+
+// ─── Status History table ───
+// Audit trail of every status change
+model StatusHistory {
+  id        Int      @id @default(autoincrement())
+  issueId   Int      @map("issue_id")
+  oldStatus String   @map("old_status")
+  newStatus String   @map("new_status")
+  changedBy String   @map("changed_by")
+  changedAt DateTime @default(now()) @map("changed_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [changedBy], references: [id])
+
+  @@map("status_history")
+}
