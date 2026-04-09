@@ -1,0 +1,751 @@
+# CivicConnect — Mega Overhaul Implementation Plan (v2)
+
+## Answers to Your Questions
+
+### Q: "Aren't we making our own backend?"
+**YES.** Express.js IS our custom-built backend. Here's the distinction:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  WHAT WE'RE BUILDING (our code, our logic)              │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Express.js + TypeScript API Server               │  │
+│  │  • Authentication logic                           │  │
+│  │  • Business rules (voting, status changes)        │  │
+│  │  • Gemini AI integration                          │  │
+│  │  • Route handlers, middleware, validation          │  │
+│  │  • Geospatial calculations                        │  │
+│  └───────────────────────────────────────────────────┘  │
+│                         ↕                                │
+│  WHAT WE'RE USING AS SERVICES (managed infrastructure)  │
+│  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ │
+│  │  Supabase    │ │  Supabase    │ │  Supabase       │ │
+│  │  PostgreSQL  │ │  Auth (JWT)  │ │  Storage (S3)   │ │
+│  │  (Database)  │ │  (Tokens)    │ │  (Images)       │ │
+│  └──────────────┘ └──────────────┘ └─────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+Supabase is infrastructure (like AWS) — we build ON TOP of it. The backend logic is 100% ours.
+
+---
+
+### Q: "Prisma?"
+**YES, great call.** Prisma replaces raw Supabase JS queries. Here's why:
+
+| Aspect | Without Prisma (Supabase JS) | With Prisma |
+|--------|-----|------|
+| Query style | `supabase.from('issues').select('*')` | `prisma.issue.findMany()` |
+| Type safety | ❌ No types, runtime errors | ✅ Full TypeScript types auto-generated |
+| Migrations | Manual SQL files | `prisma migrate dev` — automatic |
+| Schema | Written in SQL | `schema.prisma` — readable DSL |
+| Relations | Manual joins | Auto-resolved: `issue.department`, `issue.comments` |
+| Learning value | Low | 🔥 Prisma is THE most in-demand ORM in Node.js |
+
+### Q: "Can we change JS to another language?"
+**Backend → TypeScript.** It's JavaScript but with superpowers:
+```typescript
+// JavaScript — no safety net
+function getUser(id) {
+  return db.query(id);  // What type is id? string? number? Who knows!
+}
+
+// TypeScript — compiler catches bugs BEFORE runtime
+function getUser(id: string): Promise<User> {
+  return prisma.user.findUnique({ where: { id } });  // Type-safe!
+}
+```
+Frontend stays JS because migrating React components to TS would double the scope.
+
+### Q: "How is the map actually coordinating?"
+You're right — **currently 100% hardcoded.** Here's the upgraded plan:
+
+```mermaid
+flowchart LR
+    A["📱 User opens app"] --> B{"GPS Permission?"}
+    B -->|Granted| C["Get device GPS coords"]
+    B -->|Denied| D["Manual location input"]
+    C --> E["Send lat/lon to API"]
+    D --> E
+    E --> F["PostGIS query:<br/>ST_DWithin(5km radius)"]
+    F --> G["Return nearby issues<br/>within 5km"]
+    G --> H["Render on map with<br/>color-coded markers"]
+```
+
+**New Features:**
+- **Browser Geolocation API** → gets real GPS from device
+- **PostGIS extension** on Supabase → `ST_DWithin()` for 5km radius queries
+- **Reverse geocoding** → converts lat/lon to human-readable address
+- **Color-coded criticality** on map markers:
+  - 🔴 Red = Critical (flooding, exposed wires, structural damage)
+  - 🟠 Orange = High (large potholes, water main break)
+  - 🟡 Yellow = Medium (streetlight out, garbage pile)
+  - 🟢 Green = Low (cosmetic damage, minor inconvenience)
+  - 🔵 Blue = Resolved
+
+---
+
+## Complete Technology Stack (Learning Guide)
+
+### 🏗️ Architecture Pattern: 3-Tier + Microservice-Ready
+
+```mermaid
+graph TB
+    subgraph "Tier 1: Presentation (Frontends)"
+        CA["📱 Citizen App<br/>React 18 + Vite 6<br/>Port 5173"]
+        DB["📊 Admin Dashboard<br/>React 19 + Vite 8<br/>Port 5174"]
+    end
+
+    subgraph "Tier 2: Application (Backend)"
+        API["⚡ Express.js + TypeScript<br/>Port 3001"]
+        subgraph "Middleware Pipeline"
+            M1["helmet() → Security headers"]
+            M2["cors() → Cross-origin rules"]
+            M3["rateLimit() → Abuse prevention"]
+            M4["verifyJWT() → Auth check"]
+            M5["validate() → Input sanitization"]
+        end
+        subgraph "Service Layer"
+            S1["AuthService"]
+            S2["IssueService"]
+            S3["GeminiAIService"]
+            S4["GeoService"]
+        end
+    end
+
+    subgraph "Tier 3: Data (Infrastructure)"
+        PG["🐘 PostgreSQL + PostGIS<br/>(Supabase managed)"]
+        AUTH["🔐 Supabase Auth<br/>(JWT + Phone OTP)"]
+        STORE["📁 Supabase Storage<br/>(Issue images)"]
+    end
+
+    CA --> API
+    DB --> API
+    API --> M1 --> M2 --> M3 --> M4 --> M5
+    M5 --> S1 & S2 & S3 & S4
+    S1 --> AUTH
+    S2 --> PG
+    S3 -.->|Gemini API| AI["🤖 Google Gemini"]
+    S4 --> PG
+    S2 --> STORE
+```
+
+### Every Framework & Library Explained
+
+#### Backend Stack
+| Package | What It Is | Why We Use It | What You'll Learn |
+|---------|-----------|--------------|-------------------|
+| **Express.js** | HTTP server framework | Industry standard, 60%+ of Node.js APIs use it | Routing, middleware pattern, request lifecycle |
+| **TypeScript** | Typed superset of JavaScript | Catches bugs at compile-time, better IDE support | Static typing, interfaces, generics, type inference |
+| **Prisma** | ORM (Object-Relational Mapper) | Type-safe DB queries, auto-migrations, schema DSL | Database modeling, relations, migrations, query optimization |
+| **helmet** | Security middleware | Sets 15+ HTTP security headers automatically | Web security headers (CSP, HSTS, X-Frame, etc.) |
+| **cors** | CORS middleware | Controls which domains can call our API | Cross-Origin Resource Sharing, browser security model |
+| **express-rate-limit** | Rate limiter | Prevents DDoS, brute-force attacks | API abuse prevention, sliding window algorithms |
+| **express-validator** | Input validation | Validates & sanitizes all user input | Input validation patterns, sanitization |
+| **jsonwebtoken** | JWT library | Verify Supabase auth tokens server-side | JWT structure (header.payload.signature), token verification |
+| **multer** | File upload handler | Handles multipart form data (image uploads) | File streams, memory storage, size limits |
+| **@google/generative-ai** | Gemini SDK | AI image analysis + categorization | AI prompt engineering, multimodal AI, structured output |
+| **morgan** | HTTP logger | Logs every API request | Request logging, debugging, monitoring |
+| **dotenv** | Env loader | Loads `.env` variables | Environment management, secret handling |
+| **@supabase/supabase-js** | Supabase client | Auth operations (signup, OTP, verify) | Managed auth, JWT flow, social providers |
+| **tsx** | TypeScript executor | Run `.ts` files directly without compiling | Dev workflow, TypeScript execution |
+| **zod** | Schema validation | Runtime type validation (complements TypeScript) | Schema-first validation, type inference |
+
+#### Database Stack
+| Technology | What It Is | Why We Use It | What You'll Learn |
+|-----------|-----------|--------------|-------------------|
+| **PostgreSQL 15** | Relational database | Most powerful open-source DB, ACID, JSON, full-text search | SQL, relational modeling, indexing, constraints |
+| **PostGIS** | Geospatial extension | `ST_DWithin()`, `ST_Distance()` — location-based queries | Geospatial data, coordinate systems, spatial indexing |
+| **Supabase** | Managed Postgres platform | Free tier, built-in auth, storage, real-time | Cloud databases, managed services, infrastructure |
+| **Row Level Security** | DB access control | Users can only access their own data | Database security, policy-based access control |
+
+#### Frontend Stack
+| Package | What It Is | Why We Use It | What You'll Learn |
+|---------|-----------|--------------|-------------------|
+| **React 18/19** | UI library | Component-based, virtual DOM, massive ecosystem | Component architecture, hooks, state management, lifecycle |
+| **Vite 6** | Build tool | 10x faster than CRA, ESM-native, HMR | Modern build tools, ES modules, dev servers |
+| **React Router v7** | Client-side routing | URL-based navigation without page reload | SPA routing, URL params, nested routes, guards |
+| **Leaflet** | Map library | Free, open-source, mobile-friendly | Interactive maps, markers, popups, GeoJSON |
+| **Chart.js** | Charts library | Beautiful charts with minimal config | Data visualization, responsive charts |
+| **Lucide React** | Icon library | 1000+ icons, tree-shakeable, consistent | Icon systems, SVG optimization |
+
+#### Security Stack
+| Layer | Technology | Attack Prevented |
+|-------|-----------|-----------------|
+| HTTP Headers | `helmet` | XSS, clickjacking, MIME sniffing, content injection |
+| Cross-Origin | `cors` | Unauthorized API calls from malicious sites |
+| Rate Limiting | `express-rate-limit` | DDoS, brute-force login, API abuse |
+| Input Validation | `zod` + `express-validator` | SQL injection, XSS payloads, malformed data |
+| Auth | Supabase Auth (JWT) | Unauthorized access, session hijacking |
+| DB Access | Row Level Security | Data leaks, privilege escalation |
+| File Uploads | `multer` (5MB limit, image-only) | Malicious file uploads, storage abuse |
+| API Keys | Server-side only | API key theft from browser devtools |
+| HTTPS | Deployment enforced | Man-in-the-middle attacks |
+
+#### DevOps & Deployment Stack
+| Service | Purpose | Why | Free Tier |
+|---------|---------|-----|-----------|
+| **Railway** | Backend hosting | Easy Node.js deployment, auto-scaling, built-in monitoring | $5 free/month |
+| **Vercel** | Frontend hosting (both apps) | Zero-config React deployment, global CDN, preview deploys | Generous free tier |
+| **Supabase** | Database + Auth + Storage | Already configured, managed PostgreSQL | 500MB DB, 1GB storage |
+| **GitHub Actions** | CI/CD pipeline | Automated testing + deployment | Free for public repos |
+
+---
+
+## Design Patterns You'll Learn
+
+| Pattern | Where Used | What It Teaches |
+|---------|-----------|----------------|
+| **MVC (Model-View-Controller)** | Backend routes → services → Prisma models | Separation of concerns |
+| **Middleware Pipeline** | Express middleware chain | Chain of responsibility, request processing |
+| **Service Layer** | `AuthService`, `IssueService`, `GeminiService` | Business logic isolation from HTTP layer |
+| **Repository Pattern** | Prisma client wrapping | Data access abstraction |
+| **Context API** | React `AuthContext`, `LanguageContext` | Global state without prop drilling |
+| **Observer Pattern** | Supabase real-time subscriptions | Event-driven architecture |
+| **Strategy Pattern** | Gemini AI prompt selection based on input type | Swappable algorithms |
+| **Singleton** | Prisma client, Supabase client | Single shared instance |
+
+---
+
+## Database Schema (Prisma)
+
+```prisma
+// schema.prisma — this is what Prisma schema looks like
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+enum Role {
+  citizen
+  municipal
+  ngo
+}
+
+enum IssueStatus {
+  pending
+  in_progress
+  resolved
+}
+
+enum Criticality {
+  critical
+  high
+  medium
+  low
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?  @unique
+  name      String
+  avatarUrl String?  @map("avatar_url")
+  role      Role     @default(citizen)
+  language  String   @default("en")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  issues    Issue[]
+  votes     Vote[]
+  comments  Comment[]
+  statusChanges StatusHistory[]
+
+  @@map("users")
+}
+
+model Department {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  slug        String  @unique
+  icon        String
+  color       String
+  description String?
+  issues      Issue[]
+
+  @@map("departments")
+}
+
+model Issue {
+  id           Int          @id @default(autoincrement())
+  userId       String       @map("user_id")
+  title        String
+  description  String
+  departmentId Int          @map("department_id")
+  scope        String       @default("local")
+  status       IssueStatus  @default(pending)
+  criticality  Criticality  @default(medium)
+  latitude     Float
+  longitude    Float
+  locationText String?      @map("location_text")
+  imageUrl     String?      @map("image_url")
+  upvoteCount  Int          @default(0) @map("upvote_count")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  resolvedAt   DateTime?    @map("resolved_at")
+
+  user         User         @relation(fields: [userId], references: [id])
+  department   Department   @relation(fields: [departmentId], references: [id])
+  votes        Vote[]
+  comments     Comment[]
+  statusHistory StatusHistory[]
+
+  @@map("issues")
+}
+
+model Vote {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  issueId   Int      @map("issue_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, issueId])
+  @@map("votes")
+}
+
+model Comment {
+  id         Int      @id @default(autoincrement())
+  issueId    Int      @map("issue_id")
+  userId     String   @map("user_id")
+  body       String
+  authorType String   @default("citizen") @map("author_type")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
+
+model StatusHistory {
+  id        Int      @id @default(autoincrement())
+  issueId   Int      @map("issue_id")
+  oldStatus String   @map("old_status")
+  newStatus String   @map("new_status")
+  changedBy String   @map("changed_by")
+  changedAt DateTime @default(now()) @map("changed_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [changedBy], references: [id])
+
+  @@map("status_history")
+}
+```
+
+---
+
+## Geolocation & Map Architecture
+
+### How Location Works (New System)
+
+```mermaid
+sequenceDiagram
+    participant User as 📱 Citizen App
+    participant GPS as 📍 Browser GPS API
+    participant API as ⚡ Backend API
+    participant DB as 🐘 PostGIS DB
+    participant Map as 🗺️ Leaflet Map
+
+    User->>GPS: navigator.geolocation.getCurrentPosition()
+    GPS-->>User: { lat: 26.85, lon: 75.80 }
+
+    Note over User: Home Screen loads
+    User->>API: GET /api/issues/nearby?lat=26.85&lon=75.80&radius=5000
+    API->>DB: SELECT * FROM issues WHERE<br/>ST_DWithin(geom, ST_Point(75.80, 26.85)::geography, 5000)
+    DB-->>API: Issues within 5km
+    API-->>User: JSON array of nearby issues
+    User->>Map: Render markers with criticality colors
+
+    Note over User: Reporting new issue
+    User->>GPS: Get current location
+    GPS-->>User: { lat: 26.852, lon: 75.803 }
+    User->>API: POST /api/issues { lat, lon, image, ... }
+    API->>DB: INSERT with ST_Point geometry
+    API-->>User: Issue created with location marker
+```
+
+### PostGIS Spatial Queries
+```sql
+-- Enable PostGIS extension (one-time in Supabase)
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- Add geometry column to issues
+ALTER TABLE issues ADD COLUMN geom geometry(Point, 4326);
+
+-- Create spatial index for fast queries
+CREATE INDEX idx_issues_geom ON issues USING GIST(geom);
+
+-- Trigger: auto-populate geom from lat/lon on insert
+CREATE OR REPLACE FUNCTION update_geom()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.geom = ST_SetSRID(ST_MakePoint(NEW.longitude, NEW.latitude), 4326);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_issues_geom
+BEFORE INSERT OR UPDATE ON issues
+FOR EACH ROW EXECUTE FUNCTION update_geom();
+
+-- Query: Find all issues within 5km of user's location
+SELECT *, ST_Distance(
+  geom::geography,
+  ST_SetSRID(ST_MakePoint($lon, $lat), 4326)::geography
+) AS distance_meters
+FROM issues
+WHERE ST_DWithin(
+  geom::geography,
+  ST_SetSRID(ST_MakePoint($lon, $lat), 4326)::geography,
+  5000  -- 5km radius in meters
+)
+ORDER BY distance_meters ASC;
+```
+
+### Map Color Coding
+| Criticality | Color | Hex | Conditions (AI-determined) |
+|------------|-------|-----|---------------------------|
+| 🔴 Critical | Red | `#DC2626` | Flooding, exposed wires, structural collapse, gas leak |
+| 🟠 High | Orange | `#EA580C` | Large potholes, water main break, signal failure |
+| 🟡 Medium | Yellow | `#CA8A04` | Streetlight out, garbage pile, minor flooding |
+| 🟢 Low | Green | `#16A34A` | Cosmetic damage, overgrown grass, faded signage |
+| 🔵 Resolved | Blue | `#2563EB` | Issue has been resolved |
+
+---
+
+## Gemini AI — Smart Categorization + Criticality
+
+### Prompt Engineering
+```
+You are a civic infrastructure analyst. Analyze this image of a civic issue.
+
+TASK 1 — CATEGORIZE into exactly ONE department:
+- Water Department (leaks, contamination, flooding, supply disruption)
+- Roads & Infrastructure (potholes, cracks, sidewalks, bridges)
+- Electricity (streetlights out, exposed wires, transformer issues)
+- Sanitation & Waste (garbage overflow, illegal dump, blocked drains)
+- Traffic & Transport (signal malfunction, parking, highway damage)
+- Urban Development (construction hazard, building violation)
+- Parks & Environment (tree fallen, park damage, pollution, stray animals)
+- General Administration (other civic issues)
+
+TASK 2 — ASSESS CRITICALITY:
+- critical: Immediate danger to life/safety (exposed wires, structural collapse, flooding)
+- high: Serious hazard needing urgent attention within 24h (large potholes, water main break)
+- medium: Notable issue needing attention within a week (streetlight out, garbage)
+- low: Minor inconvenience (cosmetic damage, faded paint)
+
+TASK 3 — GENERATE DETAILS:
+- title: Concise issue title (max 8 words)
+- description: Detailed description (2-3 sentences)
+
+Return ONLY valid JSON:
+{
+  "title": "...",
+  "description": "...",
+  "department": "Water Department",
+  "criticality": "high"
+}
+```
+
+---
+
+## Department System (Clickable Categories)
+
+### Citizen App — Category Cards on Insights Screen
+When user clicks a department card (e.g., "🚰 Water Department"), they navigate to a filtered view showing ONLY issues from that department within their geo area.
+
+### Dashboard — Department Page
+```
+┌──────────────────────────────────────────────────┐
+│  📊 Departments Overview                         │
+├──────────────────────────────────────────────────┤
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│  │ 🚰 Water │ │ 🛣️ Roads │ │ ⚡ Elect │        │
+│  │  23 open │ │  45 open │ │  12 open │        │
+│  │  Click → │ │  Click → │ │  Click → │        │
+│  └──────────┘ └──────────┘ └──────────┘        │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│  │ 🗑️ Sanit │ │ 🚦Traffic│ │ 🌳 Parks │        │
+│  │   8 open │ │  15 open │ │   5 open │        │
+│  └──────────┘ └──────────┘ └──────────┘        │
+├──────────────────────────────────────────────────┤
+│  Clicking any card → filtered problems page      │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## Citizen App — Profile Page (Full Feature)
+
+```
+┌────────────────────────────────────────┐
+│  Profile                            ⚙️ │
+├────────────────────────────────────────┤
+│       ┌─────────┐                      │
+│       │  Avatar  │  📷 Change          │
+│       │   SJ    │                      │
+│       └─────────┘                      │
+│     Shaleen Jain                       │
+│     shaleen@email.com                  │
+│     +91 98765 43210                    │
+│                                        │
+│  ┌────────────────────────────────┐    │
+│  │ 📊 Your Impact                 │    │
+│  │ ┌──────┐ ┌──────┐ ┌──────┐   │    │
+│  │ │  12  │ │  89  │ │   8  │   │    │
+│  │ │Reports│ │Upvotes│ │Resolved│  │    │
+│  │ └──────┘ └──────┘ └──────┘   │    │
+│  └────────────────────────────────┘    │
+│                                        │
+│  ┌────────────────────────────────┐    │
+│  │ ⚙️ Settings                    │    │
+│  │ ├─ 🌐 Language    English ▸    │    │
+│  │ ├─ 🌙 Dark Mode   [toggle] ▸  │    │
+│  │ ├─ 🔔 Notifications    On ▸   │    │
+│  │ ├─ 📍 Location    Jaipur ▸    │    │
+│  │ └─ 🗑️ Clear Cache              │    │
+│  └────────────────────────────────┘    │
+│                                        │
+│  ┌────────────────────────────────┐    │
+│  │ 👤 Account                     │    │
+│  │ ├─ ✏️ Edit Profile          ▸  │    │
+│  │ ├─ 🔒 Change Password      ▸  │    │
+│  │ └─ 📄 Privacy Policy       ▸  │    │
+│  └────────────────────────────────┘    │
+│                                        │
+│  ┌────────────────────────────────┐    │
+│  │ 🚪 Log Out                     │    │
+│  └────────────────────────────────┘    │
+│                                        │
+│  v1.0.0 • Made with ❤️ by CivicConnect │
+└────────────────────────────────────────┘
+```
+
+---
+
+## Auth Flow — Email + Phone OTP
+
+```mermaid
+flowchart TD
+    A["App Launch"] --> B{"Stored JWT<br/>valid?"}
+    B -->|Yes| H["Home Screen"]
+    B -->|No| C["Auth Screen"]
+    C --> D{"Choose method"}
+    D -->|Email| E["Email + Password<br/>Sign Up / Sign In"]
+    D -->|Phone| F["Enter Phone Number<br/>+91 XXXXX XXXXX"]
+    F --> G["Enter 6-digit OTP<br/>(via Supabase + Twilio SMS)"]
+    E --> H
+    G --> H
+    H --> I["GPS Permission Request"]
+    I -->|Granted| J["Load nearby issues (5km)"]
+    I -->|Denied| K["Show all issues + ask for manual location"]
+```
+
+> [!IMPORTANT]
+> **Phone OTP** requires setting up Twilio credentials in Supabase dashboard (Auth → Providers → Phone). Supabase free tier includes ~100 OTPs/month. If you don't have a Twilio account yet, we can start with email-only and add OTP later.
+
+---
+
+## Deployment Architecture
+
+```mermaid
+graph LR
+    subgraph "Vercel (Free)"
+        CA["🏠 Citizen App<br/>civicconnect.vercel.app"]
+        DB["📊 Dashboard<br/>civicconnect-admin.vercel.app"]
+    end
+
+    subgraph "Railway (Free $5/mo)"
+        API["⚡ API Server<br/>api.civicconnect.up.railway.app"]
+    end
+
+    subgraph "Supabase (Free)"
+        PG["🐘 PostgreSQL + PostGIS"]
+        AUTH["🔐 Auth"]
+        STORE["📁 Storage"]
+    end
+
+    CA -->|HTTPS| API
+    DB -->|HTTPS| API
+    API --> PG & AUTH & STORE
+```
+
+### Deployment Commands
+```bash
+# Backend → Railway
+railway login
+railway init
+railway up
+
+# Citizen App → Vercel
+cd civicconnect-app
+vercel --prod
+
+# Dashboard → Vercel
+cd dashboard
+vercel --prod
+```
+
+---
+
+## Project Structure (Final — ~55 files)
+
+```
+civicconnect-app/
+│
+├── server/                              # ⚡ BACKEND (TypeScript + Express)
+│   ├── src/
+│   │   ├── index.ts                     # Entry: create app, mount routes
+│   │   ├── app.ts                       # Express app factory
+│   │   │
+│   │   ├── config/
+│   │   │   └── env.ts                   # Environment variable loader + validation
+│   │   │
+│   │   ├── middleware/
+│   │   │   ├── security.ts              # helmet, cors, rate-limit
+│   │   │   ├── auth.ts                  # JWT verification middleware
+│   │   │   ├── validate.ts              # Zod schema validation middleware
+│   │   │   └── errorHandler.ts          # Global error handler
+│   │   │
+│   │   ├── routes/
+│   │   │   ├── auth.routes.ts           # signup, login, otp, logout, me
+│   │   │   ├── issues.routes.ts         # CRUD + nearby + by-department
+│   │   │   ├── votes.routes.ts          # upvote/remove vote
+│   │   │   ├── comments.routes.ts       # issue comments
+│   │   │   ├── departments.routes.ts    # list depts + dept issues
+│   │   │   ├── users.routes.ts          # profile + stats
+│   │   │   └── ai.routes.ts             # image analysis, categorize, draft
+│   │   │
+│   │   ├── services/
+│   │   │   ├── auth.service.ts          # Supabase auth operations
+│   │   │   ├── issue.service.ts         # Issue business logic
+│   │   │   ├── gemini.service.ts        # AI image analysis + dept classification
+│   │   │   ├── geo.service.ts           # Geospatial helpers
+│   │   │   └── upload.service.ts        # Supabase storage upload
+│   │   │
+│   │   ├── types/
+│   │   │   └── index.ts                 # TypeScript type definitions
+│   │   │
+│   │   └── utils/
+│   │       ├── errors.ts                # Custom error classes
+│   │       └── logger.ts                # Morgan + custom logging
+│   │
+│   ├── prisma/
+│   │   ├── schema.prisma                # Database schema (shown above)
+│   │   ├── migrations/                  # Auto-generated by Prisma
+│   │   └── seed.ts                      # Seed departments + sample data
+│   │
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── .env                             # Secrets (gitignored)
+│   └── .env.example
+│
+├── src/                                 # 📱 CITIZEN APP (React + Vite)
+│   ├── main.jsx                         # Vite entry point
+│   ├── App.jsx                          # Root with AuthProvider + Router
+│   ├── index.css                        # Complete design system (overhauled)
+│   │
+│   ├── config/
+│   │   └── api.js                       # API base URL, fetch wrapper
+│   │
+│   ├── context/
+│   │   ├── AuthContext.js               # Auth state + user data
+│   │   └── LanguageContext.js           # i18n with EN/HI/GU
+│   │
+│   ├── services/
+│   │   ├── api.js                       # HTTP client with JWT injection
+│   │   ├── authService.js               # Login, signup, OTP, logout
+│   │   ├── issueService.js              # CRUD issues via API
+│   │   ├── locationService.js           # GPS + reverse geocoding
+│   │   └── storageService.js            # Local cache management
+│   │
+│   ├── screens/
+│   │   ├── AuthScreen.js                # 🆕 Login/Signup with OTP
+│   │   ├── HomeScreen.js                # Enhanced: GPS, 5km radius, dept chips
+│   │   ├── MyIssuesScreen.js            # Real data, timeline, comments
+│   │   ├── InsightsScreen.js            # Clickable dept cards → drill-down
+│   │   ├── DepartmentIssuesScreen.js    # 🆕 Filtered by department
+│   │   └── ProfileScreen.js             # 🆕 Full rebuild (stats, settings, etc.)
+│   │
+│   ├── components/
+│   │   ├── AppContent.js                # Main app shell + nav
+│   │   ├── MapComponent.js              # 🆕 Real Leaflet with color markers
+│   │   ├── SplashScreen.js
+│   │   ├── Toast.js
+│   │   ├── modals/
+│   │   │   ├── AddIssueModal.js         # Real AI + GPS location
+│   │   │   ├── IssueModal.js
+│   │   │   ├── MyIssueDetailModal.js    # Real comments + status history
+│   │   │   └── OfficialDraftModal.js
+│   │   ├── icons/Icons.js
+│   │   └── ui/                          # 🆕 Shared UI components
+│   │       ├── Skeleton.js              # Loading skeletons
+│   │       ├── Badge.js                 # Status/dept badges
+│   │       └── EmptyState.js            # Empty state illustrations
+│   │
+│   └── constants/
+│       ├── theme.js                     # Colors, department config
+│       ├── translations.js              # 🆕 EN/HI/GU strings
+│       └── departments.js               # 🆕 Department definitions
+│
+├── dashboard/                           # 📊 ADMIN DASHBOARD (React + Vite)
+│   └── src/
+│       ├── App.jsx                      # + departments route
+│       ├── pages/
+│       │   ├── DashboardPage.jsx        # Real stats, clickable charts
+│       │   ├── ProblemsPage.jsx         # + department filter
+│       │   ├── DepartmentsPage.jsx      # 🆕 Grid of dept cards → drill-down
+│       │   ├── MapPage.jsx              # Color-coded criticality markers
+│       │   ├── LoginPage.jsx            # Real Supabase auth
+│       │   └── SettingsPage.jsx         # Enhanced
+│       ├── services/
+│       │   ├── api.js                   # 🆕 HTTP client
+│       │   ├── dataService.js           # Real API calls (not localStorage)
+│       │   └── authService.js           # Real Supabase auth
+│       └── components/Layout/
+│           ├── Sidebar.jsx              # + Departments nav, collapsible
+│           └── Header.jsx               # Enhanced
+│
+├── index.html                           # Vite entry point (citizen app)
+├── vite.config.js                       # Citizen app Vite config
+├── package.json                         # Updated deps
+└── .env                                 # Frontend env vars
+```
+
+---
+
+## Execution Order
+
+| Phase | What | Key Files | Depends On |
+|-------|------|----------|------------|
+| **1** | Backend scaffolding (Express + TypeScript + Prisma) | `server/*` | Nothing |
+| **2** | Database: Prisma schema + migrate + seed departments | `prisma/*` | Phase 1 |
+| **3** | API routes: auth, issues, votes, comments, depts, AI | `routes/*`, `services/*` | Phase 2 |
+| **4** | Citizen App: CRA→Vite migration + auth + geo + UI overhaul | `src/*` | Phase 3 |
+| **5** | Dashboard: real API integration + departments page + map upgrade | `dashboard/*` | Phase 3 |
+| **6** | Security hardening + deployment prep | Middleware, RLS, env configs | Phase 4-5 |
+| **7** | Testing + deployment | CI/CD, Railway, Vercel | Phase 6 |
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Twilio for Phone OTP**: Do you have a Twilio account? If not, we can start with email auth and add OTP once you set up Twilio credentials in Supabase dashboard. (Free Twilio trial gives $15 credit ≈ 2000 SMS)
+
+> [!IMPORTANT]
+> **Gemini API Key**: We'll test your existing key. If it doesn't work, you can generate a new one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Takes 30 seconds.
+
+> [!WARNING]
+> **Supabase PostGIS**: The PostGIS extension needs to be enabled in your Supabase dashboard (Database → Extensions → search "postgis" → Enable). This is a one-click operation.
+
+All other decisions are made. **You've given full permission — I'm ready to execute.** Just confirm and I'll start building Phase 1 immediately.

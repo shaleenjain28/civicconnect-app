@@ -1,0 +1,570 @@
+# CivicConnect — Mega Overhaul Implementation Plan
+
+## Current State Analysis
+
+### What Exists Today
+| Component | Tech | Data Layer | Auth | Status |
+|-----------|------|-----------|------|--------|
+| Citizen App (`/src`) | React (CRA) | localStorage + mock data | None (hardcoded `user1`) | Working prototype |
+| Dashboard (`/dashboard`) | Vite + React | localStorage + Supabase (partial) | Demo mode / basic Supabase | Working prototype |
+
+### Critical Problems Identified
+1. **No real backend** — everything is client-side localStorage
+2. **No real users** — hardcoded `user1`, no auth flow in citizen app
+3. **No database** — data lost on browser clear
+4. **API key exposed** — Gemini key is hardcoded in frontend source code
+5. **Wrong category system** — uses generic labels (Roads, Utilities) instead of departments (Water Dept, Electricity Dept)
+6. **Profile page is a stub** — just static text, no real functionality
+7. **No security** — no CSRF, no rate limiting, no input sanitization
+8. **CRA is deprecated** — citizen app needs migration to Vite
+
+---
+
+## Proposed Architecture
+
+```mermaid
+graph TB
+    subgraph "Frontends"
+        CA["🏠 Citizen App<br/>(React + Vite)<br/>Port 5173"]
+        DB["📊 Dashboard<br/>(React + Vite)<br/>Port 5174"]
+    end
+
+    subgraph "Backend Server"
+        API["⚡ Express.js API Server<br/>Port 3001"]
+        MW["Middleware Stack<br/>Helmet · CORS · Rate Limiter<br/>JWT Verify · Input Sanitizer"]
+        AI["🤖 Gemini AI Service<br/>Image Analysis · Dept Categorization"]
+    end
+
+    subgraph "Supabase (Managed)"
+        AUTH["🔐 Supabase Auth<br/>JWT · Email/Password"]
+        PG["🐘 PostgreSQL<br/>Users · Issues · Departments<br/>Comments · Votes"]
+        RLS["🛡️ Row Level Security<br/>User-scoped data access"]
+        STORE["📁 Storage<br/>Issue Images"]
+    end
+
+    CA --> API
+    DB --> API
+    API --> MW
+    MW --> AI
+    API --> AUTH
+    API --> PG
+    API --> STORE
+    PG --> RLS
+```
+
+---
+
+## Technology Stack & Why Each Choice
+
+### Backend: Express.js + Node.js
+| Aspect | Choice | Why |
+|--------|--------|-----|
+| **Runtime** | Node.js 20 LTS | Same language as frontends (JS everywhere), huge ecosystem |
+| **Framework** | Express.js | Industry standard, minimal boilerplate, massive community, easy to learn |
+| **Why not Next.js API routes?** | We have TWO separate frontends (citizen + dashboard) — Next.js works best as a unified full-stack app |
+| **Why not Spring Boot?** | Adds Java complexity; the entire project is JS-based, keeping one language reduces cognitive overhead |
+| **Why not NestJS?** | Great framework but heavier — Express is more transparent for learning how backend architecture works |
+
+### Database: PostgreSQL via Supabase
+| Aspect | Choice | Why |
+|--------|--------|-----|
+| **Database** | PostgreSQL | Gold standard relational DB, ACID-compliant, JSON support, full-text search |
+| **Hosting** | Supabase (already configured) | Free tier, managed PostgreSQL, built-in auth, storage, real-time, RLS |
+| **ORM** | Supabase JS Client (server-side) | Direct integration, auto-generates types, handles connections |
+| **Why not raw SQL?** | Supabase client gives us RLS enforcement + connection pooling for free |
+
+### Frontends: React + Vite
+| Aspect | Choice | Why |
+|--------|--------|-----|
+| **Build Tool** | Vite | 10x faster than CRA (which is deprecated), HMR, ESM-native |
+| **UI Library** | React 19 | Already used in dashboard, latest features (transitions, suspense) |
+| **Icons** | Lucide React (dashboard) + custom SVGs (app) | Consistent, tree-shakeable |
+| **CSS** | Vanilla CSS with CSS custom properties | Full control, no build dependency, theming via variables |
+
+### Security Stack
+| Layer | Tool | What it prevents |
+|-------|------|-----------------|
+| **HTTP Headers** | `helmet` | XSS, clickjacking, MIME sniffing, content injection |
+| **CORS** | `cors` | Unauthorized cross-origin requests |
+| **Rate Limiting** | `express-rate-limit` | DoS attacks, API abuse, brute force login |
+| **Input Sanitization** | `express-validator` + `xss` | SQL injection, XSS payloads, malformed data |
+| **Auth** | Supabase Auth (JWT) | Unauthorized access, session hijacking |
+| **DB Security** | Row Level Security (RLS) | Data leaks, privilege escalation |
+| **API Key Protection** | Server-side Gemini calls | API key theft from browser devtools |
+
+### AI: Google Gemini
+| Aspect | Detail |
+|--------|--------|
+| **Model** | `gemini-2.0-flash` (fast, cost-effective) |
+| **Use Case 1** | Image analysis → generate title + description |
+| **Use Case 2** | Smart department categorization (Water Dept, Roads, Electricity, etc.) |
+| **Use Case 3** | Draft official complaints |
+| **Security** | API key stored in server `.env`, never exposed to client |
+
+---
+
+## Database Schema Design
+
+```mermaid
+erDiagram
+    users {
+        uuid id PK
+        text email UK
+        text name
+        text phone
+        text avatar_url
+        text role "citizen | municipal | ngo"
+        text language "en | hi | gu"
+        timestamp created_at
+    }
+
+    departments {
+        serial id PK
+        text name UK "Water Department, Roads, Electricity..."
+        text icon
+        text color
+        text description
+    }
+
+    issues {
+        serial id PK
+        uuid user_id FK
+        text title
+        text description
+        integer department_id FK
+        text scope "local | city | state | country"
+        text status "pending | in_progress | resolved"
+        text priority "low | medium | high"
+        float latitude
+        float longitude
+        text location_text
+        text image_url
+        integer upvote_count "denormalized for performance"
+        timestamp created_at
+        timestamp resolved_at
+    }
+
+    votes {
+        serial id PK
+        uuid user_id FK
+        integer issue_id FK
+        timestamp created_at
+    }
+
+    comments {
+        serial id PK
+        integer issue_id FK
+        uuid user_id FK
+        text body
+        text author_type "citizen | authority"
+        timestamp created_at
+    }
+
+    issue_status_history {
+        serial id PK
+        integer issue_id FK
+        text old_status
+        text new_status
+        uuid changed_by FK
+        timestamp changed_at
+    }
+
+    users ||--o{ issues : reports
+    users ||--o{ votes : casts
+    users ||--o{ comments : writes
+    departments ||--o{ issues : categorizes
+    issues ||--o{ votes : receives
+    issues ||--o{ comments : has
+    issues ||--o{ issue_status_history : tracks
+```
+
+### Department Categories (Gemini AI will classify into these)
+| Department | Example Issues |
+|-----------|---------------|
+| 🚰 Water Department | Leaking pipes, water contamination, supply issues |
+| 🛣️ Roads & Infrastructure | Potholes, broken sidewalks, road cracks |
+| ⚡ Electricity | Streetlight outage, power grid issues, exposed wires |
+| 🗑️ Sanitation & Waste | Garbage overflow, illegal dumping, drain blockage |
+| 🚦 Traffic & Transport | Signal malfunction, parking issues, highway problems |
+| 🏗️ Urban Development | Construction safety, building violations |
+| 🌳 Parks & Environment | Tree trimming, park maintenance, pollution |
+| 📋 General Administration | Policy suggestions, miscellaneous |
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Supabase Credentials**: You already have Supabase configured at `https://rnnznvbzkhdmqygdvbve.supabase.co`. I'll create tables in this project. Do you want me to use this existing instance, or create a new one?
+
+> [!IMPORTANT]
+> **Gemini API Key**: The key `AIzaSyCyo31JWOWATeZ74Vv80EhXDb1Pg7GM4aA` is currently hardcoded in the frontend. I'll move it to the backend server's `.env`. Is this key still valid, or do you have a different one?
+
+> [!WARNING]
+> **CRA → Vite Migration**: The citizen app currently uses `react-scripts` (Create React App). I'll migrate it to Vite. This changes the project structure slightly — `process.env.REACT_APP_*` becomes `import.meta.env.VITE_*`, and `public/` asset references change. The app will work the same but build much faster.
+
+> [!IMPORTANT]
+> **Citizen App Auth Flow**: Currently there's no login in the citizen app — it just opens. I'll add a proper auth flow (sign up / sign in with email). Should it also support phone number OTP login, or is email/password sufficient for now?
+
+---
+
+## Proposed Changes
+
+### Phase 1: Backend Server (Express.js API)
+
+Creates a new `/server` directory with a production-grade Express.js backend.
+
+#### [NEW] `server/package.json`
+Dependencies: express, cors, helmet, express-rate-limit, express-validator, xss, @supabase/supabase-js, @google/generative-ai, jsonwebtoken, dotenv, multer, morgan
+
+#### [NEW] `server/.env`
+Stores all secrets: Supabase URL/key, Gemini API key, JWT secret
+
+#### [NEW] `server/src/index.js`
+Entry point — creates Express app, mounts middlewares and routes
+
+#### [NEW] `server/src/middleware/security.js`
+Helmet, CORS, rate limiting (100 req/15min general, 10 req/15min for auth)
+
+#### [NEW] `server/src/middleware/auth.js`
+JWT verification middleware — validates Supabase tokens on protected routes
+
+#### [NEW] `server/src/middleware/validate.js`
+Input sanitization + validation using express-validator + xss
+
+#### [NEW] `server/src/routes/auth.routes.js`
+`POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+
+#### [NEW] `server/src/routes/issues.routes.js`
+Full CRUD: `GET /api/issues`, `GET /api/issues/:id`, `POST /api/issues`, `PATCH /api/issues/:id/status`, `DELETE /api/issues/:id`
+
+#### [NEW] `server/src/routes/votes.routes.js`
+`POST /api/issues/:id/vote`, `DELETE /api/issues/:id/vote`
+
+#### [NEW] `server/src/routes/comments.routes.js`
+`GET /api/issues/:id/comments`, `POST /api/issues/:id/comments`
+
+#### [NEW] `server/src/routes/departments.routes.js`
+`GET /api/departments`, `GET /api/departments/:id/issues`
+
+#### [NEW] `server/src/routes/users.routes.js`
+`GET /api/users/me`, `PATCH /api/users/me`, `GET /api/users/me/stats`
+
+#### [NEW] `server/src/routes/ai.routes.js`
+`POST /api/ai/analyze-image` — sends image to Gemini, returns title + description + department  
+`POST /api/ai/draft-complaint` — generates formal complaint letter
+
+#### [NEW] `server/src/services/geminiService.js`
+Gemini AI integration — image analysis and **smart department categorization** prompt that maps to actual government departments
+
+#### [NEW] `server/src/services/supabaseService.js`
+Server-side Supabase client with admin privileges for database operations
+
+#### [NEW] `server/src/utils/errors.js`
+Custom error classes + global error handler middleware
+
+---
+
+### Phase 2: Database Setup (Supabase PostgreSQL)
+
+#### [NEW] `server/src/db/schema.sql`
+Complete SQL schema: `users`, `departments`, `issues`, `votes`, `comments`, `issue_status_history` tables with proper foreign keys, indexes, and constraints
+
+#### [NEW] `server/src/db/seed.sql`
+Seed data: 8 departments, sample issues (migrated from current mock data), sample users
+
+#### [NEW] `server/src/db/rls.sql`
+Row Level Security policies:
+- Users can only update their own profile
+- Users can only delete their own issues
+- Anyone authenticated can read issues
+- Only `municipal`/`ngo` roles can change issue status
+
+---
+
+### Phase 3: Citizen App Migration & Overhaul
+
+Migrates from CRA → Vite. Complete restructure with proper routing, auth, and real API calls.
+
+#### [NEW] `src/vite.config.js` (replaces CRA config)
+
+#### [MODIFY] `package.json`
+Remove react-scripts, add Vite + dependencies (@supabase/supabase-js, react-router-dom)
+
+#### [NEW] `src/index.html` (Vite entry point)
+
+#### [NEW] `src/services/api.js`
+Central API client — fetch wrapper with auth token injection, error handling, base URL config
+
+#### [NEW] `src/services/authService.js`
+Supabase auth integration — signup, login, logout, session management
+
+#### [NEW] `src/context/AuthContext.js`
+React context for auth state — provides `user`, `login`, `logout`, `isAuthenticated` throughout app
+
+#### [NEW] `src/context/LanguageContext.js`
+i18n context — supports English, Hindi, Gujarati with string dictionaries
+
+#### Complete UI Overhaul — New Screens:
+
+##### [NEW] `src/screens/AuthScreen.js`
+Beautiful login/signup screen with animated gradient background, role selection, email/password form
+
+##### [MODIFY] `src/components/screens/HomeScreen.js`
+- Enhanced card design with glassmorphism
+- Animated scope tabs
+- **Department filter chips** (click to filter by department)
+- Pull-to-refresh gesture
+- Skeleton loading states
+
+##### [MODIFY] `src/components/screens/MyIssuesScreen.js`
+- Real data from API (user's actual issues)
+- Timeline view for status history
+- Real comments thread
+
+##### [MODIFY] `src/components/screens/InsightsScreen.js`
+- Connected to real database aggregations
+- **Clickable department cards** → navigates to department-specific issues list
+
+##### [NEW] `src/components/screens/DepartmentIssuesScreen.js`
+Shows issues filtered by a specific department when user clicks a category card
+
+##### [MODIFY] `src/components/screens/ProfileScreen.js` — **Major Enhancement**
+- User avatar with upload
+- **Stats section**: Total reports submitted, Total upvotes received, Issues resolved, Response rate
+- **My Activity**: Recent reports timeline
+- **Settings Section**:
+  - Language switcher (English / Hindi / Gujarati)
+  - Notification preferences
+  - Dark mode toggle
+  - Clear cache
+- **Account Section**:
+  - Edit profile (name, email, phone)
+  - Change password
+- **Log out button** (functional with auth)
+
+##### [MODIFY] `src/components/modals/AddIssueModal.js`
+- **Real Gemini AI integration** via backend (not fake)
+- Camera capture + gallery picker
+- **AI auto-categorizes into department** and shows suggestion
+- User can override department selection
+- Location picker with map
+- Loading states with shimmer animation
+
+##### [MODIFY] `src/style.css`
+Complete design system overhaul:
+- CSS custom properties for theming (dark mode support)
+- Glassmorphism cards
+- Smooth micro-animations (enter/exit transitions)
+- Premium gradient backgrounds
+- Inter font from Google Fonts
+- Proper mobile-first responsive design
+
+---
+
+### Phase 4: Dashboard Enhancements
+
+#### [MODIFY] `dashboard/src/services/dataService.js`
+Replace localStorage with real API calls to Express backend
+
+#### [MODIFY] `dashboard/src/services/authService.js`
+Replace demo mode with real Supabase auth
+
+#### [NEW] `dashboard/src/pages/DepartmentsPage.jsx`
+- Grid of department cards with issue counts
+- Click → navigates to filtered issues view
+- Real-time stats per department
+
+#### [MODIFY] `dashboard/src/pages/DashboardPage.jsx`
+- Real data from API (not mock monthly data)
+- **Clickable department doughnut chart** — clicking a segment navigates to that department's issues
+- Live stat cards with real numbers
+- Recent activity feed from real data
+
+#### [MODIFY] `dashboard/src/pages/ProblemsPage.jsx`
+- **Department filter** added (Water Dept, Roads, Electricity, etc.)
+- Proper department badges with icons and colors
+- Pagination for large datasets
+
+#### [MODIFY] `dashboard/src/components/Layout/Sidebar.jsx`
+- Add "Departments" nav item
+- Collapsible sidebar for mobile
+- Active indicator animation
+
+#### [MODIFY] `dashboard/src/App.jsx`
+- Add `/departments` route
+- Add `/departments/:id` route for category-specific view
+
+#### [MODIFY] `dashboard/src/index.css`
+- Enhanced animations
+- Better card shadows and hover effects
+- Improved table styling
+- Department-specific color coding
+
+---
+
+### Phase 5: Gemini AI Smart Categorization
+
+#### [NEW] `server/src/services/geminiService.js` — Department Categorization Prompt
+
+The AI prompt will be engineered to:
+1. Analyze the uploaded image
+2. Generate a concise title and detailed description
+3. **Classify into the correct government department** from the predefined list
+4. Assign severity/priority level
+5. Return structured JSON
+
+Example prompt engineering:
+```
+Analyze this civic issue image. Classify it into EXACTLY ONE of these government departments:
+- Water Department (leaks, contamination, supply)
+- Roads & Infrastructure (potholes, cracks, sidewalks)
+- Electricity (streetlights, wires, grid)
+- Sanitation & Waste (garbage, drains, cleaning)
+- Traffic & Transport (signals, parking, highways)
+- Urban Development (construction, buildings)
+- Parks & Environment (trees, parks, pollution)
+- General Administration (other)
+
+Return JSON: { title, description, department, priority }
+```
+
+---
+
+### Phase 6: Security Hardening
+
+#### Backend Security
+- `helmet()` — sets 15+ security HTTP headers
+- `cors({ origin: ['http://localhost:5173', 'http://localhost:5174'] })` — whitelist frontends
+- `rateLimit({ windowMs: 15*60*1000, max: 100 })` — general rate limit
+- `rateLimit({ windowMs: 15*60*1000, max: 10 })` — auth endpoint rate limit  
+- Input validation on every route with `express-validator`
+- XSS sanitization with `xss` library
+- `multer` file upload limits (5MB max, image types only)
+
+#### Database Security
+- RLS policies on every table
+- Prepared statements (via Supabase client — prevents SQL injection)
+- No raw SQL from user input ever
+
+#### Frontend Security
+- API key never in frontend code
+- JWT stored in httpOnly considerations (localStorage with short expiry for SPA)
+- CSRF prevention via SameSite cookies
+- Content Security Policy headers
+
+---
+
+## Project Structure (Final)
+
+```
+civicconnect-app/
+├── server/                          # 🟢 NEW — Express.js Backend
+│   ├── src/
+│   │   ├── index.js                 # Entry point
+│   │   ├── middleware/
+│   │   │   ├── security.js          # Helmet, CORS, rate limiting
+│   │   │   ├── auth.js              # JWT verification
+│   │   │   └── validate.js          # Input sanitization
+│   │   ├── routes/
+│   │   │   ├── auth.routes.js
+│   │   │   ├── issues.routes.js
+│   │   │   ├── votes.routes.js
+│   │   │   ├── comments.routes.js
+│   │   │   ├── departments.routes.js
+│   │   │   ├── users.routes.js
+│   │   │   └── ai.routes.js
+│   │   ├── services/
+│   │   │   ├── geminiService.js     # AI categorization
+│   │   │   └── supabaseAdmin.js     # Server-side Supabase
+│   │   ├── db/
+│   │   │   ├── schema.sql
+│   │   │   ├── seed.sql
+│   │   │   └── rls.sql
+│   │   └── utils/
+│   │       └── errors.js
+│   ├── package.json
+│   └── .env
+│
+├── src/                             # 📱 Citizen App (Migrated to Vite)
+│   ├── main.jsx                     # New Vite entry
+│   ├── App.jsx
+│   ├── index.css                    # Complete design system
+│   ├── context/
+│   │   ├── AuthContext.js
+│   │   └── LanguageContext.js
+│   ├── services/
+│   │   ├── api.js                   # HTTP client
+│   │   └── authService.js           # Supabase auth
+│   ├── screens/
+│   │   ├── AuthScreen.js            # 🟢 NEW
+│   │   ├── HomeScreen.js            # Enhanced
+│   │   ├── MyIssuesScreen.js        # Enhanced
+│   │   ├── InsightsScreen.js        # Enhanced + clickable categories
+│   │   ├── DepartmentIssuesScreen.js # 🟢 NEW
+│   │   └── ProfileScreen.js         # 🟢 Major overhaul
+│   ├── components/
+│   │   ├── modals/
+│   │   ├── icons/
+│   │   └── ui/                      # 🟢 NEW — reusable UI components
+│   └── constants/
+│       ├── theme.js
+│       └── translations.js          # 🟢 NEW — i18n strings
+│
+├── dashboard/                       # 📊 Dashboard (Enhanced)
+│   └── src/
+│       ├── pages/
+│       │   ├── DepartmentsPage.jsx  # 🟢 NEW
+│       │   ├── DashboardPage.jsx    # Enhanced
+│       │   ├── ProblemsPage.jsx     # + dept filter
+│       │   └── ...
+│       └── services/
+│           ├── dataService.js       # Real API calls
+│           └── authService.js       # Real auth
+│
+├── index.html                       # Vite entry for citizen app
+├── vite.config.js                   # Citizen app Vite config
+└── package.json                     # Updated
+```
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> 1. **Auth method for citizen app**: Email/password only, or also phone OTP? (OTP requires Supabase Pro plan — $25/month)
+> 2. **Existing Supabase project**: Should I use your existing Supabase instance (`rnnznvbzkhdmqygdvbve`) or create a fresh one?
+> 3. **Gemini API key**: Is the hardcoded key `AIzaSyCyo31JWOWATeZ74Vv80EhXDb1Pg7GM4aA` still valid?
+> 4. **Deployment target**: Are you planning to deploy this (Vercel, Railway, etc.) or keeping it local for now?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. **Backend API**: Test all endpoints with `curl` / Postman-style requests
+2. **Database**: Verify schema creation with SQL queries
+3. **Auth flow**: Test signup → login → protected route → logout
+4. **AI categorization**: Submit test images, verify department assignment
+5. **Security**: Test rate limiting, invalid input rejection, unauthorized access
+
+### Manual Verification
+1. **Citizen App**: Full flow — signup → report issue (with AI) → view in My Issues → upvote → check profile stats
+2. **Dashboard**: Login → view real stats → filter by department → click category → see department issues → update status
+3. **Cross-platform**: Verify citizen app reports appear in dashboard in real-time
+4. **Browser dev tools**: Confirm no API keys visible in network tab or source
+
+---
+
+## Execution Order
+
+| Phase | What | Est. Files | Priority |
+|-------|------|-----------|----------|
+| 1 | Backend server setup + middleware + routes | ~15 files | 🔴 Critical |
+| 2 | Database schema + seed + RLS | ~3 files | 🔴 Critical |
+| 3 | Citizen app migration + UI overhaul | ~20 files | 🔴 Critical |
+| 4 | Dashboard enhancements | ~8 files | 🟡 High |
+| 5 | Gemini AI smart categorization | ~2 files | 🟡 High |
+| 6 | Security hardening + testing | ~3 files | 🟢 Medium |
+
+Total estimated: **~50 files** across 6 phases.
