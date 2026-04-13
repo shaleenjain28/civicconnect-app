@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Heart, Mail, Lock, Loader2 } from 'lucide-react';
+import { Building2, Heart, Eye, Mail, Lock, Loader2, ChevronDown } from 'lucide-react';
 import { authService } from '../services/authService';
 
 export default function LoginPage() {
@@ -8,15 +8,30 @@ export default function LoginPage() {
   const [role, setRole] = useState('Municipal');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [departments, setDepartments] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Fetch departments for Municipal role
+  useEffect(() => {
+    fetch('/api/departments')
+      .then(r => r.ok ? r.json() : [])
+      .then(setDepartments)
+      .catch(() => setDepartments([]));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await authService.signIn(email, password, role === 'Municipal' ? 'Municipal Staff' : 'NGO');
+      const roleMap = {
+        Municipal: 'municipal',
+        Supervisor: 'supervisor',
+        NGO: 'ngo',
+      };
+      await authService.signIn(email, password, roleMap[role] || 'municipal');
       navigate('/dashboard');
     } catch (err) {
       setError(err.message);
@@ -24,6 +39,12 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  const roles = [
+    { key: 'Supervisor', icon: Eye, label: 'Supervisor', color: '#8B5CF6', desc: 'Oversee all departments' },
+    { key: 'Municipal', icon: Building2, label: 'Municipal', color: '#10B981', desc: 'Department operations' },
+    { key: 'NGO', icon: Heart, label: 'NGO', color: '#F59E0B', desc: 'Civic partner' },
+  ];
 
   return (
     <div className="login-page">
@@ -33,33 +54,37 @@ export default function LoginPage() {
           <img src="/logo.png" alt="CivicConnect Logo" />
         </div>
 
-        <h1 className="login-title">Municipal Dashboard</h1>
-        <p className="login-subtitle">Sign in to manage citizen reports and municipal services</p>
+        <h1 className="login-title">Authority Dashboard</h1>
+        <p className="login-subtitle">Sign in to manage civic issues and department operations</p>
 
-        {/* Role Tabs */}
-        <div className="login-tabs">
-          <button
-            type="button"
-            className={`login-tab ${role === 'Municipal' ? 'active' : ''}`}
-            onClick={() => setRole('Municipal')}
-          >
-            <Building2 size={16} />
-            Municipal
-          </button>
-          <button
-            type="button"
-            className={`login-tab ${role === 'NGO' ? 'active' : ''}`}
-            onClick={() => setRole('NGO')}
-          >
-            <Heart size={16} />
-            NGO
-          </button>
+        {/* 3 Role Tabs */}
+        <div className="login-tabs login-tabs-3">
+          {roles.map(({ key, icon: Icon, label, color }) => (
+            <button
+              key={key}
+              type="button"
+              className={`login-tab ${role === key ? 'active' : ''}`}
+              onClick={() => { setRole(key); setError(''); }}
+              style={role === key ? { borderColor: color, color: color } : {}}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* Error Message */}
+        {/* Role Description */}
+        <div className="login-role-desc">
+          <span className="login-role-badge" style={{ background: roles.find(r => r.key === role)?.color }}>
+            {role}
+          </span>
+          <span className="login-role-text">{roles.find(r => r.key === role)?.desc}</span>
+        </div>
+
+        {/* Error */}
         {error && <div className="login-error">{error}</div>}
 
-        {/* Login Form */}
+        {/* Form */}
         <form className="login-form" onSubmit={handleSubmit}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" htmlFor="login-email">
@@ -70,7 +95,7 @@ export default function LoginPage() {
               id="login-email"
               type="email"
               className="form-input"
-              placeholder="Enter your email"
+              placeholder="Enter your official email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -95,6 +120,32 @@ export default function LoginPage() {
             />
           </div>
 
+          {/* Department selector — only for Municipal */}
+          {role === 'Municipal' && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label" htmlFor="login-department">
+                <Building2 size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                Department
+              </label>
+              <div className="select-wrapper">
+                <select
+                  id="login-department"
+                  className="form-input form-select"
+                  value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value)}
+                >
+                  <option value="">Select your department</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.icon} {dept.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="select-icon" />
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
             className="btn btn-primary btn-block btn-lg login-btn"
@@ -106,14 +157,28 @@ export default function LoginPage() {
                 Signing in...
               </>
             ) : (
-              `Sign In as ${role === 'Municipal' ? 'Municipal Staff' : 'NGO'}`
+              `Sign In as ${role}`
             )}
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 20 }}>
-          Demo: <strong>municipal@civicconnect.com</strong> / <strong>admin123</strong>
-        </p>
+        <div className="login-credentials">
+          <p className="login-credentials-title">Demo Credentials</p>
+          <div className="login-credentials-grid">
+            <div className="login-cred-item">
+              <span className="login-cred-role">👑 Supervisor</span>
+              <span className="login-cred-email">supervisor@civicconnect.in</span>
+            </div>
+            <div className="login-cred-item">
+              <span className="login-cred-role">🏛️ Municipal</span>
+              <span className="login-cred-email">roads@civicconnect.in</span>
+            </div>
+            <div className="login-cred-item">
+              <span className="login-cred-role">👤 Citizen</span>
+              <span className="login-cred-email">test1@gmail.com</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -6,21 +6,11 @@ import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
 import { locationService } from '../../services/locationService';
 
-const DEPARTMENTS = [
-  { name: 'Water Department', icon: '🚰' },
-  { name: 'Roads & Infrastructure', icon: '🛣️' },
-  { name: 'Electricity', icon: '⚡' },
-  { name: 'Sanitation & Waste', icon: '🗑️' },
-  { name: 'Traffic & Transport', icon: '🚦' },
-  { name: 'Urban Development', icon: '🏗️' },
-  { name: 'Parks & Environment', icon: '🌳' },
-  { name: 'General Administration', icon: '📋' },
-];
-
 const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
   const { t } = useLanguage();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState(null);
   const [criticality, setCriticality] = useState('medium');
   const [locationText, setLocationText] = useState('Getting location...');
@@ -31,6 +21,13 @@ const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
   const [aiResult, setAiResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Fetch departments from API
+  useEffect(() => {
+    api.get('/departments')
+      .then((data) => setDepartments(data))
+      .catch(() => setDepartments([]));
+  }, []);
 
   // Reverse geocode on mount
   useEffect(() => {
@@ -63,8 +60,11 @@ const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
       setDescription(result.description || description);
       setCriticality(result.criticality || 'medium');
 
-      // Find matching department
-      const matchedDept = DEPARTMENTS.find((d) => d.name === result.department);
+      // Find matching department from API list
+      const matchedDept = departments.find((d) => 
+        d.name.toLowerCase().includes(result.department?.toLowerCase()) ||
+        result.department?.toLowerCase().includes(d.slug?.replace(/-/g, ' '))
+      );
       if (matchedDept) setSelectedDept(matchedDept);
     } catch (err) {
       alert('AI analysis failed: ' + err.message);
@@ -78,9 +78,12 @@ const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
 
     setSubmitting(true);
     try {
-      // Find department ID (we'll need to look it up)
-      const depts = await api.get('/departments');
-      const dept = depts.find((d) => d.name === selectedDept?.name) || depts[7]; // fallback to General
+      const dept = selectedDept || departments[0];
+      if (!dept) {
+        alert('Please select a department');
+        setSubmitting(false);
+        return;
+      }
 
       const issueData = {
         title,
@@ -160,10 +163,10 @@ const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
         {/* Department Selection */}
         <label className="addIssueLabel">{t('department')}</label>
         <div className="dept-select-grid">
-          {DEPARTMENTS.map((dept) => (
+          {departments.map((dept) => (
             <button
-              key={dept.name}
-              className={`dept-select-btn ${selectedDept?.name === dept.name ? 'active' : ''}`}
+              key={dept.id}
+              className={`dept-select-btn ${selectedDept?.id === dept.id ? 'active' : ''}`}
               onClick={() => setSelectedDept(dept)}
               type="button"
             >

@@ -1,53 +1,60 @@
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+// ─── Dashboard Auth Service v3 ───
+// Connects to our Express backend API for auth.
+// Stores user + session in localStorage for persistence.
 
-const DEMO_MODE = !isSupabaseConfigured;
-
-// Demo credentials when Supabase is not configured
-const DEMO_USERS = {
-  'municipal@civicconnect.com': { password: 'admin123', role: 'Municipal Staff', name: 'Shaleen Jain', department: 'Electricity' },
-  'ngo@civicconnect.com':       { password: 'admin123', role: 'NGO',             name: 'NGO Admin',    department: 'Sanitation'   },
-};
+const API_BASE = '/api';
 
 export const authService = {
   /**
-   * Sign in — uses Supabase when configured, otherwise falls back to demo mode.
+   * Sign in via backend API
    */
   async signIn(email, password, role) {
-    if (DEMO_MODE || email === 'municipal@civicconnect.com' || email === 'ngo@civicconnect.com') {
-      return authService._demoSignIn(email, password, role);
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || 'Login failed');
+
+    // Store session and user
     const user = {
       id: data.user.id,
       email: data.user.email,
-      name: data.user.user_metadata?.name || email.split('@')[0],
-      role: data.user.user_metadata?.role || role,
-      department: data.user.user_metadata?.department || 'General',
+      name: data.user.name,
+      role: data.user.role || role,
+      department: data.user.departmentName || null,
+      departmentId: data.user.departmentId || null,
     };
-    localStorage.setItem('dashboardUser', JSON.stringify(user));
-    return user;
-  },
 
-  /**
-   * Sign up (Supabase only)
-   */
-  async signUp(email, password, metadata) {
-    if (DEMO_MODE) throw new Error('Sign-up is not available in demo mode');
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: metadata },
-    });
-    if (error) throw new Error(error.message);
-    return data;
+    localStorage.setItem('cc_user', JSON.stringify(user));
+    localStorage.setItem('cc_session', JSON.stringify(data.session));
+
+    return user;
   },
 
   /**
    * Sign out
    */
   async signOut() {
-    if (!DEMO_MODE) await supabase.auth.signOut();
+    try {
+      const session = authService.getSession();
+      if (session?.access_token) {
+        await fetch(`${API_BASE}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+      }
+    } catch {
+      // Logout even if API fails
+    }
+    localStorage.removeItem('cc_user');
+    localStorage.removeItem('cc_session');
+    // Also clean old keys
     localStorage.removeItem('dashboardUser');
   },
 
@@ -56,7 +63,18 @@ export const authService = {
    */
   getUser() {
     try {
-      return JSON.parse(localStorage.getItem('dashboardUser'));
+      return JSON.parse(localStorage.getItem('cc_user')) || JSON.parse(localStorage.getItem('dashboardUser'));
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Get stored session (for Authorization header)
+   */
+  getSession() {
+    try {
+      return JSON.parse(localStorage.getItem('cc_session'));
     } catch {
       return null;
     }
@@ -70,34 +88,24 @@ export const authService = {
   },
 
   /**
-   * Update user profile
+   * Update user profile locally
    */
   updateProfile(updates) {
     const user = authService.getUser();
     if (!user) return null;
     const updated = { ...user, ...updates };
-    localStorage.setItem('dashboardUser', JSON.stringify(updated));
+    localStorage.setItem('cc_user', JSON.stringify(updated));
     return updated;
   },
 
-  /* ---- private demo helpers ---- */
-  _demoSignIn(email, password, role) {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const demo = DEMO_USERS[email];
-        if (!demo || demo.password !== password) {
-          reject(new Error('Invalid email or password. Try municipal@civicconnect.com / admin123'));
-          return;
-        }
-        const expectedRole = role === 'NGO' ? 'NGO' : 'Municipal Staff';
-        if (demo.role !== expectedRole) {
-          reject(new Error(`This account is registered as ${demo.role}`));
-          return;
-        }
-        const user = { id: 'demo-' + Date.now(), email, name: demo.name, role: demo.role, department: demo.department, phone: '+91 98765 43210' };
-        localStorage.setItem('dashboardUser', JSON.stringify(user));
-        resolve(user);
-      }, 800);
-    });
+  /**
+   * Get auth header for API requests
+   */
+  getAuthHeader() {
+    const session = authService.getSession();
+    if (session?.access_token) {
+      return { Authorization: `Bearer ${session.access_token}` };
+    }
+    return {};
   },
 };

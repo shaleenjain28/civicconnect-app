@@ -1,16 +1,13 @@
-// ─── Auth Routes ───
-// POST /api/auth/signup    — Create new account
-// POST /api/auth/login     — Sign in with email/password
-// POST /api/auth/logout    — Sign out
-// GET  /api/auth/me        — Get current user info
+// ─── Auth Routes v3 ───
+// Uses Supabase public client for signup/login (no service role key needed)
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { supabase } from '../services/supabaseAdmin.js';
+import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody, signupSchema, loginSchema } from '../middleware/validate.js';
+import { validateEmail } from '../services/email.service.js';
 import { BadRequestError, UnauthorizedError } from '../utils/errors.js';
-import { log } from '../utils/logger.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -18,36 +15,48 @@ const prisma = new PrismaClient();
 // ── POST /api/auth/signup ──
 router.post('/signup', validateBody(signupSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password, name, role } = req.body;
+    const { email, password, name, role = 'citizen', departmentId } = req.body;
 
-    // 1. Create user in Supabase Auth
+    // ─── Email validation (prevents Supabase bounce) ───
+    const emailCheck = await validateEmail(email);
+    if (!emailCheck.valid) {
+      throw new BadRequestError(emailCheck.reason || 'Invalid email address');
+    }
+
+    // Municipal users must specify a department
+    if (role === 'municipal' && !departmentId) {
+      throw new BadRequestError('Municipal users must select a department');
+    }
+
+    // Create user in Supabase Auth using public client
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { name, role }, // Stored in user_metadata
+        data: { name, role },
       },
     });
 
     if (error) throw new BadRequestError(error.message);
-    if (!data.user) throw new BadRequestError('Signup failed');
+    if (!data.user) throw new BadRequestError('Signup failed. Please try again.');
 
-    // 2. Create matching user record in our database
-    const user = await prisma.user.create({
-      data: {
-        id: data.user.id, // Same UUID as Supabase Auth
+    // Create user in our DB
+    const dbUser = await prisma.user.upsert({
+      where: { id: data.user.id },
+      update: { name, role, departmentId: role === 'municipal' ? departmentId : null },
+      create: {
+        id: data.user.id,
         email,
         name,
         role,
+        departmentId: role === 'municipal' ? departmentId : null,
       },
     });
 
-    log(`New user registered: ${email} (${role})`);
-
     res.status(201).json({
-      message: 'Account created successfully',
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: dbUser,
       session: data.session,
+      message: data.session ? 'Account created and signed in' : 'Account created. Please check your email to confirm.',
     });
   } catch (err) {
     next(err);
@@ -59,43 +68,48 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
   try {
     const { email, password } = req.body;
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) throw new UnauthorizedError('Invalid email or password');
-    if (!data.user || !data.session) throw new UnauthorizedError('Login failed');
 
-    // Fetch or create user in our DB
-    let user = await prisma.user.findUnique({ where: { id: data.user.id } });
+    // Get or create DB user (check by ID first, then by email)
+    let dbUser = await prisma.user.findUnique({
+      where: { id: data.user.id },
+      include: { department: true },
+    });
 
-    if (!user) {
-      // First time login — create DB record
-      user = await prisma.user.create({
-        data: {
+    if (!dbUser) {
+      // User might exist with a different Supabase ID (e.g., re-created in Supabase)
+      // Use upsert on email to handle gracefully
+      const name = data.user.user_metadata?.name || email.split('@')[0];
+      const role = data.user.user_metadata?.role || 'citizen';
+
+      dbUser = await prisma.user.upsert({
+        where: { email: data.user.email! },
+        update: {
+          id: data.user.id, // Sync the Supabase ID
+          name: name,
+          role: role,
+        },
+        create: {
           id: data.user.id,
           email: data.user.email!,
-          name: data.user.user_metadata?.name || email.split('@')[0],
-          role: data.user.user_metadata?.role || 'citizen',
+          name,
+          role,
         },
+        include: { department: true },
       });
     }
 
-    log(`User logged in: ${email}`);
-
     res.json({
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        phone: user.phone,
-        avatarUrl: user.avatarUrl,
-        language: user.language,
+        ...dbUser,
+        departmentName: (dbUser as any).department?.name || null,
       },
-      session: {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at,
-      },
+      session: data.session,
     });
   } catch (err) {
     next(err);
@@ -103,10 +117,8 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
 });
 
 // ── POST /api/auth/logout ──
-router.post('/logout', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/logout', requireAuth, async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    await supabase.auth.signOut();
-    log(`User logged out: ${req.user?.email}`);
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);
@@ -118,20 +130,28 @@ router.get('/me', requireAuth, async (req: Request, res: Response, next: NextFun
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.id },
+      include: { department: true },
     });
 
     if (!user) throw new UnauthorizedError('User not found');
 
     res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      phone: user.phone,
-      avatarUrl: user.avatarUrl,
-      language: user.language,
-      createdAt: user.createdAt,
+      ...user,
+      departmentName: (user as any).department?.name || null,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── POST /api/auth/validate-email ──
+router.post('/validate-email', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email } = req.body;
+    if (!email) throw new BadRequestError('Email is required');
+
+    const result = await validateEmail(email);
+    res.json(result);
   } catch (err) {
     next(err);
   }

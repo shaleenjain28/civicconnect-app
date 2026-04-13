@@ -5,14 +5,13 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
-import { validateBody, validateParams, createCommentSchema, idParamSchema } from '../middleware/validate.js';
 import { NotFoundError } from '../utils/errors.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // ── GET /api/issues/:id/comments ──
-router.get('/:id/comments', validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/comments', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const issueId = Number(req.params.id);
 
@@ -34,15 +33,16 @@ router.get('/:id/comments', validateParams(idParamSchema), async (req: Request, 
 });
 
 // ── POST /api/issues/:id/comments ──
-router.post('/:id/comments', requireAuth, validateParams(idParamSchema), validateBody(createCommentSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/comments', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const issueId = Number(req.params.id);
     const { body } = req.body;
+    if (!body || body.trim().length === 0) return res.status(400).json({ error: 'Comment body is required' });
 
     const issue = await prisma.issue.findUnique({ where: { id: issueId } });
     if (!issue) throw new NotFoundError('Issue not found');
 
-    const authorType = req.user!.role === 'municipal' || req.user!.role === 'ngo' ? 'authority' : 'citizen';
+    const authorType = req.user!.role === 'municipal' || req.user!.role === 'supervisor' || req.user!.role === 'ngo' ? 'authority' : 'citizen';
 
     const comment = await prisma.comment.create({
       data: {

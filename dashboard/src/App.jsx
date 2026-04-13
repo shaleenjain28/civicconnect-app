@@ -8,14 +8,17 @@ import DashboardPage from './pages/DashboardPage';
 import ProblemsPage from './pages/ProblemsPage';
 import MapPage from './pages/MapPage';
 import SettingsPage from './pages/SettingsPage';
+import DepartmentsPage from './pages/DepartmentsPage';
 import './index.css';
 
 // Page metadata
 const PAGE_META = {
-  '/dashboard': { title: 'Dashboard Overview', subtitle: 'Monitor and manage citizen-reported problems across the municipality' },
-  '/problems':  { title: 'Problem Management', subtitle: 'View, filter, and manage all citizen-reported problems' },
-  '/map':       { title: 'Interactive Map',    subtitle: 'View all reported problems on the map. Click on markers to see details' },
-  '/settings':  { title: 'Settings',           subtitle: 'Manage your account settings and preferences' },
+  '/dashboard':   { title: 'Dashboard Overview',  subtitle: 'Monitor and manage citizen-reported problems across the municipality' },
+  '/departments': { title: 'Departments',          subtitle: 'HOD contacts, issue breakdown, and department performance' },
+  '/problems':    { title: 'Problem Management',   subtitle: 'View, filter, and manage all citizen-reported problems' },
+  '/map':         { title: 'Interactive Map',      subtitle: 'View all reported problems on the map. Click on markers to see details' },
+  '/escalated':   { title: 'Escalated Issues',     subtitle: 'Overdue issues that need immediate attention' },
+  '/settings':    { title: 'Settings',             subtitle: 'Manage your account settings and preferences' },
 };
 
 function ProtectedLayout({ theme, toggleTheme }) {
@@ -42,11 +45,12 @@ function ProtectedLayout({ theme, toggleTheme }) {
         <Header title={meta.title} subtitle={meta.subtitle} theme={theme} toggleTheme={toggleTheme} />
         <div className="page-content">
           <Routes>
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/problems"  element={<ProblemsPage />} />
-            <Route path="/map"       element={<MapPage />} />
-            <Route path="/settings"  element={<SettingsPage />} />
-            <Route path="*"          element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard"    element={<DashboardPage />} />
+            <Route path="/departments"  element={<DepartmentsPage />} />
+            <Route path="/problems"     element={<ProblemsPage />} />
+            <Route path="/map"          element={<MapPage />} />
+            <Route path="/settings"     element={<SettingsPage />} />
+            <Route path="*"             element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
       </div>

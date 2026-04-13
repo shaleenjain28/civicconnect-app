@@ -1,208 +1,190 @@
-// ─── Issue Routes ───
-// GET    /api/issues           — List all issues (paginated, filterable)
-// GET    /api/issues/nearby    — Get issues within radius of coordinates
-// GET    /api/issues/:id       — Get single issue with details
-// POST   /api/issues           — Create new issue
-// PATCH  /api/issues/:id/status — Update issue status (municipal/ngo only)
+// ─── Issues Routes v3 ───
+// Full CRUD with deadlines, urgency scores, resolution verification, HOD assignment
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { requireAuth, optionalAuth } from '../middleware/auth.js';
-import {
-  validateBody, validateQuery, validateParams,
-  createIssueSchema, updateStatusSchema, idParamSchema, nearbyQuerySchema, paginationSchema,
-} from '../middleware/validate.js';
-import { NotFoundError, ForbiddenError } from '../utils/errors.js';
-import { buildNearbyWhereClause, buildDistanceOrderClause, reverseGeocode } from '../services/geo.service.js';
-import { log } from '../utils/logger.js';
-import { z } from 'zod';
+import { requireAuth } from '../middleware/auth.js';
+import { calculateDeadline, calculateUrgencyScore } from '../services/email.service.js';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../utils/errors.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Query schema for listing issues with filters
-const listQuerySchema = paginationSchema.extend({
-  status: z.string().optional(),
-  department: z.coerce.number().int().positive().optional(),
-  scope: z.string().optional(),
-  criticality: z.string().optional(),
-  search: z.string().optional(),
-  sort: z.enum(['newest', 'oldest', 'most_voted']).default('newest'),
-});
-
 // ── GET /api/issues ──
-router.get('/', optionalAuth, validateQuery(listQuerySchema), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { page, limit, status, department, scope, criticality, search, sort } = req.query as z.infer<typeof listQuerySchema>;
+    const { department, status, criticality, sort, limit = '50', offset = '0', escalated } = req.query;
 
-    const where: Record<string, unknown> = {};
+    const where: any = {};
+    if (department) where.departmentId = Number(department);
     if (status) where.status = status;
-    if (department) where.departmentId = department;
-    if (scope) where.scope = scope;
     if (criticality) where.criticality = criticality;
-    if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+    if (escalated === 'true') where.escalated = true;
 
-    const orderBy = sort === 'most_voted'
-      ? { upvoteCount: 'desc' as const }
-      : sort === 'oldest'
-        ? { createdAt: 'asc' as const }
-        : { createdAt: 'desc' as const };
+    const orderBy: any = sort === 'urgency'
+      ? { urgencyScore: 'desc' }
+      : sort === 'upvotes'
+        ? { upvoteCount: 'desc' }
+        : { createdAt: 'desc' };
 
     const [issues, total] = await Promise.all([
       prisma.issue.findMany({
         where,
+        orderBy,
+        take: Math.min(Number(limit), 100),
+        skip: Number(offset),
         include: {
           department: true,
-          user: { select: { id: true, name: true, avatarUrl: true } },
-          _count: { select: { comments: true } },
+          user: { select: { id: true, name: true, email: true } },
+          assignedTo: { select: { id: true, name: true, email: true } },
         },
-        orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
       }),
       prisma.issue.count({ where }),
     ]);
 
-    // If user is authenticated, check which issues they've upvoted
-    let userVotes: Set<number> = new Set();
-    if (req.user) {
-      const votes = await prisma.vote.findMany({
-        where: { userId: req.user.id, issueId: { in: issues.map((i) => i.id) } },
-        select: { issueId: true },
-      });
-      userVotes = new Set(votes.map((v) => v.issueId));
+    // Check if any issues are overdue and mark escalated
+    const now = new Date();
+    for (const issue of issues) {
+      if (issue.deadline && issue.deadline < now && !issue.escalated &&
+          issue.status !== 'resolved' && issue.status !== 'pending_verification') {
+        await prisma.issue.update({
+          where: { id: issue.id },
+          data: { escalated: true },
+        });
+        (issue as any).escalated = true;
+      }
     }
 
-    res.json({
-      data: issues.map((issue) => ({
-        ...issue,
-        hasVoted: userVotes.has(issue.id),
-        commentCount: issue._count.comments,
-      })),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json({ data: issues, total, limit: Number(limit), offset: Number(offset) });
   } catch (err) {
     next(err);
   }
 });
 
 // ── GET /api/issues/nearby ──
-router.get('/nearby', optionalAuth, validateQuery(nearbyQuerySchema), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/nearby', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { lat, lon, radius, page, limit } = req.query as z.infer<typeof nearbyQuerySchema>;
+    const { lat, lon, radius = '5000', limit = '50' } = req.query;
+    if (!lat || !lon) throw new BadRequestError('lat and lon are required');
 
-    const whereClause = buildNearbyWhereClause(lat, lon, radius);
-    const distanceOrder = buildDistanceOrderClause(lat, lon);
+    const userLat = Number(lat);
+    const userLon = Number(lon);
+    const maxRadius = Number(radius);
 
-    // Raw SQL for geo query (Prisma doesn't natively support spatial queries)
-    const issues = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(`
-      SELECT i.*, d.name as department_name, d.slug as department_slug,
-             d.icon as department_icon, d.color as department_color,
-             u.name as reporter_name, u.avatar_url as reporter_avatar,
-             ${distanceOrder} as distance_meters
-      FROM issues i
-      JOIN departments d ON i.department_id = d.id
-      JOIN users u ON i.user_id = u.id
-      WHERE ${whereClause}
-      ORDER BY ${distanceOrder} ASC
-      LIMIT ${limit} OFFSET ${(page - 1) * limit}
-    `);
-
-    const countResult = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(`
-      SELECT COUNT(*) as count FROM issues WHERE ${whereClause}
-    `);
-    const total = Number(countResult[0]?.count || 0);
-
-    res.json({
-      data: issues,
-      center: { lat, lon },
-      radius,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    const issues = await prisma.issue.findMany({
+      where: { status: { not: 'resolved' } },
+      include: {
+        department: true,
+        user: { select: { id: true, name: true } },
+      },
+      orderBy: { urgencyScore: 'desc' },
+      take: Math.min(Number(limit), 100),
     });
+
+    // Haversine filter
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const filtered = issues
+      .map((issue) => {
+        const dLat = toRad(issue.latitude - userLat);
+        const dLon = toRad(issue.longitude - userLon);
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(userLat)) * Math.cos(toRad(issue.latitude)) * Math.sin(dLon / 2) ** 2;
+        const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return { ...issue, distance_meters: Math.round(distance) };
+      })
+      .filter((issue) => issue.distance_meters <= maxRadius)
+      .sort((a, b) => b.urgencyScore - a.urgencyScore);
+
+    res.json({ data: filtered });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── GET /api/issues/escalated ──
+router.get('/escalated', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const issues = await prisma.issue.findMany({
+      where: {
+        escalated: true,
+        status: { notIn: ['resolved'] },
+      },
+      include: {
+        department: true,
+        user: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true } },
+      },
+      orderBy: { urgencyScore: 'desc' },
+    });
+
+    res.json({ data: issues, total: issues.length });
   } catch (err) {
     next(err);
   }
 });
 
 // ── GET /api/issues/:id ──
-router.get('/:id', optionalAuth, validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params as unknown as { id: number };
-
     const issue = await prisma.issue.findUnique({
-      where: { id },
+      where: { id: Number(req.params.id) },
       include: {
         department: true,
-        user: { select: { id: true, name: true, avatarUrl: true } },
+        user: { select: { id: true, name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+        verifiedBy: { select: { id: true, name: true } },
         comments: {
-          include: { user: { select: { id: true, name: true, avatarUrl: true, role: true } } },
+          include: { user: { select: { id: true, name: true, role: true } } },
           orderBy: { createdAt: 'asc' },
         },
         statusHistory: {
-          include: { user: { select: { id: true, name: true } } },
-          orderBy: { changedAt: 'asc' },
+          include: { user: { select: { name: true, role: true } } },
+          orderBy: { changedAt: 'desc' },
         },
-        _count: { select: { votes: true, comments: true } },
       },
     });
 
     if (!issue) throw new NotFoundError('Issue not found');
-
-    // Check if current user has voted
-    let hasVoted = false;
-    if (req.user) {
-      const vote = await prisma.vote.findUnique({
-        where: { userId_issueId: { userId: req.user.id, issueId: id } },
-      });
-      hasVoted = !!vote;
-    }
-
-    res.json({ ...issue, hasVoted });
+    res.json(issue);
   } catch (err) {
     next(err);
   }
 });
 
 // ── POST /api/issues ──
-router.post('/', requireAuth, validateBody(createIssueSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = req.body;
+    const { title, description, departmentId, latitude, longitude, locationText, imageUrl, criticality = 'medium', scope = 'local' } = req.body;
 
-    // Reverse geocode if no location text provided
-    if (!data.locationText) {
-      data.locationText = await reverseGeocode(data.latitude, data.longitude);
+    if (!title || !description || !departmentId || latitude === undefined || longitude === undefined) {
+      throw new BadRequestError('title, description, departmentId, latitude, longitude are required');
     }
+
+    // Get department for urgency calculation
+    const dept = await prisma.department.findUnique({ where: { id: Number(departmentId) } });
+    if (!dept) throw new NotFoundError('Department not found');
+
+    const deadline = calculateDeadline(criticality);
+    const urgencyScore = calculateUrgencyScore(0, criticality, dept.slug, deadline);
 
     const issue = await prisma.issue.create({
       data: {
         userId: req.user!.id,
-        title: data.title,
-        description: data.description,
-        departmentId: data.departmentId,
-        scope: data.scope,
-        criticality: data.criticality,
-        latitude: data.latitude,
-        longitude: data.longitude,
-        locationText: data.locationText,
-        imageUrl: data.imageUrl,
+        title,
+        description,
+        departmentId: Number(departmentId),
+        scope,
+        criticality,
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        locationText: locationText || null,
+        imageUrl: imageUrl || null,
+        deadline,
+        urgencyScore,
       },
-      include: {
-        department: true,
-        user: { select: { id: true, name: true, avatarUrl: true } },
-      },
+      include: { department: true },
     });
-
-    log(`New issue created: "${issue.title}" by ${req.user!.email} → ${issue.department.name} [${issue.criticality}]`);
 
     res.status(201).json(issue);
   } catch (err) {
@@ -211,42 +193,181 @@ router.post('/', requireAuth, validateBody(createIssueSchema), async (req: Reque
 });
 
 // ── PATCH /api/issues/:id/status ──
-router.patch('/:id/status', requireAuth, validateParams(idParamSchema), validateBody(updateStatusSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id/status', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params as unknown as { id: number };
-    const { status } = req.body;
+    const { status, note } = req.body;
+    if (!status) throw new BadRequestError('status is required');
 
-    // Only municipal/ngo can change status
-    if (req.user!.role !== 'municipal' && req.user!.role !== 'ngo') {
-      throw new ForbiddenError('Only municipal staff or NGO members can update issue status');
-    }
-
-    const issue = await prisma.issue.findUnique({ where: { id } });
+    const issue = await prisma.issue.findUnique({ where: { id: Number(req.params.id) } });
     if (!issue) throw new NotFoundError('Issue not found');
 
-    const oldStatus = issue.status;
-
-    // Update status + resolved timestamp
     const updated = await prisma.issue.update({
-      where: { id },
+      where: { id: issue.id },
       data: {
         status,
-        resolvedAt: status === 'resolved' ? new Date() : null,
+        resolvedAt: status === 'resolved' ? new Date() : undefined,
+        assignedToId: status === 'in_progress' ? req.user!.id : undefined,
       },
+    });
+
+    await prisma.statusHistory.create({
+      data: {
+        issueId: issue.id,
+        oldStatus: issue.status,
+        newStatus: status,
+        changedBy: req.user!.id,
+        note: note || null,
+      },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/issues/:id/resolve ──
+// Municipal uploads resolution photo + note
+router.patch('/:id/resolve', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { resolutionPhoto, resolutionNote } = req.body;
+    if (!resolutionPhoto) throw new BadRequestError('Resolution photo is required for verification');
+
+    const issue = await prisma.issue.findUnique({ where: { id: Number(req.params.id) } });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    // Mark as pending verification
+    const updated = await prisma.issue.update({
+      where: { id: issue.id },
+      data: {
+        status: 'pending_verification',
+        resolutionPhoto,
+        resolutionNote: resolutionNote || null,
+        assignedToId: req.user!.id,
+      },
+    });
+
+    await prisma.statusHistory.create({
+      data: {
+        issueId: issue.id,
+        oldStatus: issue.status,
+        newStatus: 'pending_verification',
+        changedBy: req.user!.id,
+        note: resolutionNote || 'Resolution submitted for verification',
+      },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/issues/:id/verify ──
+// Supervisor or citizen verifies resolution
+router.patch('/:id/verify', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { approved, note } = req.body;
+    const issue = await prisma.issue.findUnique({ where: { id: Number(req.params.id) } });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    if (issue.status !== 'pending_verification') {
+      throw new BadRequestError('Issue is not pending verification');
+    }
+
+    // Only supervisor, original reporter, or authority can verify
+    const userRole = req.user!.role;
+    if (userRole !== 'supervisor' && issue.userId !== req.user!.id) {
+      throw new ForbiddenError('Only supervisor or original reporter can verify');
+    }
+
+    if (approved) {
+      const updated = await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          status: 'resolved',
+          verifiedById: req.user!.id,
+          verifiedAt: new Date(),
+          resolvedAt: new Date(),
+        },
+      });
+
+      await prisma.statusHistory.create({
+        data: {
+          issueId: issue.id,
+          oldStatus: 'pending_verification',
+          newStatus: 'resolved',
+          changedBy: req.user!.id,
+          note: note || 'Resolution verified ✅',
+        },
+      });
+
+      res.json(updated);
+    } else {
+      // Rejected — reopen issue
+      const updated = await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          status: 'in_progress',
+          resolutionPhoto: null,
+          resolutionNote: null,
+          verifiedById: null,
+          verifiedAt: null,
+        },
+      });
+
+      await prisma.statusHistory.create({
+        data: {
+          issueId: issue.id,
+          oldStatus: 'pending_verification',
+          newStatus: 'in_progress',
+          changedBy: req.user!.id,
+          note: note || 'Resolution rejected — issue reopened',
+        },
+      });
+
+      res.json(updated);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── PATCH /api/issues/:id/reassign ──
+// Supervisor reassigns issue to different department
+router.patch('/:id/reassign', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== 'supervisor') {
+      throw new ForbiddenError('Only supervisors can reassign issues');
+    }
+
+    const { departmentId, note } = req.body;
+    if (!departmentId) throw new BadRequestError('departmentId is required');
+
+    const issue = await prisma.issue.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { department: true },
+    });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    const newDept = await prisma.department.findUnique({ where: { id: Number(departmentId) } });
+    if (!newDept) throw new NotFoundError('Department not found');
+
+    const updated = await prisma.issue.update({
+      where: { id: issue.id },
+      data: { departmentId: Number(departmentId) },
       include: { department: true },
     });
 
-    // Record status change in history
     await prisma.statusHistory.create({
       data: {
-        issueId: id,
-        oldStatus,
-        newStatus: status,
+        issueId: issue.id,
+        oldStatus: issue.status,
+        newStatus: issue.status,
         changedBy: req.user!.id,
+        note: note || `Reassigned from ${issue.department.name} to ${newDept.name}`,
       },
     });
-
-    log(`Issue #${id} status: ${oldStatus} → ${status} by ${req.user!.email}`);
 
     res.json(updated);
   } catch (err) {

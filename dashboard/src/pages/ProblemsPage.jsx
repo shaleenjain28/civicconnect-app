@@ -1,280 +1,350 @@
-import React, { useState, useMemo } from 'react';
-import { Search, Filter, Eye, X, MapPin, Calendar, ThumbsUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  AlertTriangle, CheckCircle, Clock, Search, Filter,
+  Camera, ShieldCheck, ShieldX, ArrowRight, MapPin, Phone, Mail, User,
+  ChevronDown, X, Eye,
+} from 'lucide-react';
 import { dataService } from '../services/dataService';
+import { authService } from '../services/authService';
 
 export default function ProblemsPage() {
-  const [problems, setProblems] = useState(() => dataService.getProblems());
+  const [issues, setIssues] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedIssue, setSelectedIssue] = useState(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All Statuses');
-  const [typeFilter, setTypeFilter] = useState('All Types');
-  const [priorityFilter, setPriorityFilter] = useState('All Priorities');
-  const [selectedProblem, setSelectedProblem] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [critFilter, setCritFilter] = useState('');
+  const [showResolveModal, setShowResolveModal] = useState(null);
+  const [showVerifyModal, setShowVerifyModal] = useState(null);
+  const [resPhoto, setResPhoto] = useState('');
+  const [resNote, setResNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const filtered = useMemo(() => {
-    let list = [...problems];
-    if (search) list = list.filter(p => p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()));
-    if (statusFilter !== 'All Statuses') list = list.filter(p => p.status === statusFilter);
-    if (typeFilter !== 'All Types') list = list.filter(p => p.type === typeFilter);
-    if (priorityFilter !== 'All Priorities') list = list.filter(p => p.priority === priorityFilter);
-    return list;
-  }, [problems, search, statusFilter, typeFilter, priorityFilter]);
+  const user = authService.getUser();
+  const isSupervisor = user?.role === 'supervisor';
+  const isMunicipal = user?.role === 'municipal';
 
-  const clearFilters = () => {
-    setSearch(''); setStatusFilter('All Statuses');
-    setTypeFilter('All Types'); setPriorityFilter('All Priorities');
-  };
-
-  const handleStatusChange = (problemId, newStatus) => {
-    const updated = dataService.updateProblemStatus(problemId, newStatus);
-    setProblems(updated);
-    if (selectedProblem?.id === problemId) {
-      setSelectedProblem({ ...selectedProblem, status: newStatus });
+  const loadIssues = useCallback(async () => {
+    setLoading(true);
+    try {
+      const filters = {};
+      if (statusFilter) filters.status = statusFilter;
+      if (critFilter) filters.criticality = critFilter;
+      filters.sort = 'urgency';
+      const data = await dataService.getProblems(filters);
+      setIssues(data);
+    } catch (err) {
+      console.error('Failed to load issues:', err);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [statusFilter, critFilter]);
 
-  const statusClass = (s) => {
-    switch (s) {
-      case 'Pending':     return 'badge badge-pending';
-      case 'In Progress': return 'badge badge-inprogress';
-      case 'Resolved':    return 'badge badge-resolved';
-      default:            return 'badge';
-    }
-  };
+  useEffect(() => { loadIssues(); }, [loadIssues]);
 
-  const priorityClass = (p) => {
-    switch (p) {
-      case 'High':   return 'priority-badge priority-high';
-      case 'Medium': return 'priority-badge priority-medium';
-      case 'Low':    return 'priority-badge priority-low';
-      default:       return 'priority-badge';
-    }
-  };
-
-  const typeClass = (t) => {
-    switch (t) {
-      case 'Pothole':     return 'type-badge type-pothole';
-      case 'Water':       return 'type-badge type-water';
-      case 'Streetlight': return 'type-badge type-streetlight';
-      case 'Garbage':     return 'type-badge type-garbage';
-      default:            return 'type-badge';
-    }
-  };
-
-  return (
-    <div className="fade-in">
-      {/* Page Header */}
-      <div className="page-header-gradient">
-        <h2 className="page-header-title">Problem Management</h2>
-        <p className="page-header-desc">View, filter, and manage all citizen-reported problems</p>
-      </div>
-
-      {/* Filters */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header" style={{ paddingBottom: 0 }}>
-          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Filter size={18} style={{ color: 'var(--primary-600)' }} />
-            Filters & Search
-          </h3>
-        </div>
-        <div className="filters-bar">
-          <div className="filter-group" style={{ flex: 2 }}>
-            <label className="filter-label">Search</label>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
-              <input
-                className="filter-input"
-                style={{ paddingLeft: 36, width: '100%' }}
-                placeholder="Search problems..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="filter-group">
-            <label className="filter-label">Status</label>
-            <select className="filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option>All Statuses</option>
-              <option>Pending</option>
-              <option>In Progress</option>
-              <option>Resolved</option>
-            </select>
-          </div>
-          <div className="filter-group">
-            <label className="filter-label">Type</label>
-            <select className="filter-select" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option>All Types</option>
-              <option>Pothole</option>
-              <option>Water</option>
-              <option>Streetlight</option>
-              <option>Garbage</option>
-            </select>
-          </div>
-          <div className="filter-group">
-            <label className="filter-label">Priority</label>
-            <select className="filter-select" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
-              <option>All Priorities</option>
-              <option>High</option>
-              <option>Medium</option>
-              <option>Low</option>
-            </select>
-          </div>
-          <button className="clear-filters-btn" onClick={clearFilters}>Clear Filters</button>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">Problems ({filtered.length})</h3>
-          <p className="card-subtitle">Click on any problem to view details and manage status</p>
-        </div>
-        <div className="card-body" style={{ padding: 0 }}>
-          <div className="data-table-wrapper">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Problem</th>
-                  <th>Location</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th>Votes</th>
-                  <th>Reported</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id} onClick={() => setSelectedProblem(p)}>
-                    <td className="table-problem-cell">
-                      <div className="table-problem-title">{p.title}</div>
-                      <div className="table-problem-desc">{p.description}</div>
-                    </td>
-                    <td>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-                        <MapPin size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-                        {p.location}
-                      </span>
-                    </td>
-                    <td><span className={typeClass(p.type)}>{p.type}</span></td>
-                    <td><span className={statusClass(p.status)}>{p.status}</span></td>
-                    <td><span className={priorityClass(p.priority)}>{p.priority}</span></td>
-                    <td>
-                      <span className="table-votes">
-                        <ThumbsUp size={14} /> {p.votes}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="table-date">
-                        <Calendar size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                        {p.reportedDate}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="table-action-btn"
-                        onClick={(e) => { e.stopPropagation(); setSelectedProblem(p); }}
-                      >
-                        <Eye size={14} /> View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filtered.length === 0 && (
-            <div className="empty-state">
-              <Search size={48} className="empty-state-icon" />
-              <p className="empty-state-text">No problems match your filters</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Detail Modal */}
-      {selectedProblem && (
-        <ProblemModal
-          problem={selectedProblem}
-          onClose={() => setSelectedProblem(null)}
-          onStatusChange={handleStatusChange}
-        />
-      )}
-    </div>
+  // Filter by search
+  const filtered = issues.filter(i =>
+    !search || i.title.toLowerCase().includes(search.toLowerCase()) ||
+    i.locationText?.toLowerCase().includes(search.toLowerCase())
   );
-}
 
-function ProblemModal({ problem, onClose, onStatusChange }) {
-  const p = problem;
+  const handleStatusChange = async (issueId, status) => {
+    try {
+      await dataService.updateStatus(issueId, status);
+      loadIssues();
+      setSelectedIssue(null);
+    } catch (err) {
+      alert('Failed: ' + err.message);
+    }
+  };
+
+  const handleResolve = async () => {
+    if (!resPhoto.trim()) return alert('Please provide a resolution photo URL');
+    setSubmitting(true);
+    try {
+      await dataService.resolveIssue(showResolveModal, resPhoto, resNote);
+      setShowResolveModal(null);
+      setResPhoto('');
+      setResNote('');
+      loadIssues();
+    } catch (err) {
+      alert('Failed: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleVerify = async (approved) => {
+    setSubmitting(true);
+    try {
+      await dataService.verifyIssue(showVerifyModal, approved, resNote);
+      setShowVerifyModal(null);
+      setResNote('');
+      loadIssues();
+    } catch (err) {
+      alert('Failed: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const statusOptions = [
+    { value: '', label: 'All Status' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'pending_verification', label: 'Verification' },
+    { value: 'resolved', label: 'Resolved' },
+  ];
+
+  const critOptions = [
+    { value: '', label: 'All Priority' },
+    { value: 'critical', label: '🔴 Critical' },
+    { value: 'high', label: '🟠 High' },
+    { value: 'medium', label: '🟡 Medium' },
+    { value: 'low', label: '🟢 Low' },
+  ];
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>{p.title}</h2>
-            <p style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Problem #{p.id}</p>
-          </div>
-          <button className="modal-close-btn" onClick={onClose}><X size={18} /></button>
+    <>
+      {/* Filters Bar */}
+      <div className="problems-filters">
+        <div className="problems-search">
+          <Search size={16} className="problems-search-icon" />
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search issues..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
         </div>
-
-        <div className="modal-body">
-          {p.image && (
-            <img
-              src={p.image}
-              alt={p.title}
-              style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 'var(--radius-md)', marginBottom: 20 }}
-            />
-          )}
-
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 20 }}>{p.description}</p>
-
-          <div className="modal-detail-row">
-            <span className="modal-detail-label">Location</span>
-            <span className="modal-detail-value" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={14} /> {p.location}</span>
-          </div>
-          <div className="modal-detail-row">
-            <span className="modal-detail-label">Type</span>
-            <span className="modal-detail-value">{p.type}</span>
-          </div>
-          <div className="modal-detail-row">
-            <span className="modal-detail-label">Priority</span>
-            <span className="modal-detail-value">{p.priority}</span>
-          </div>
-          <div className="modal-detail-row">
-            <span className="modal-detail-label">Votes</span>
-            <span className="modal-detail-value" style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--accent-700)' }}><ThumbsUp size={14} /> {p.votes}</span>
-          </div>
-          <div className="modal-detail-row">
-            <span className="modal-detail-label">Reported</span>
-            <span className="modal-detail-value">{p.reportedDate}</span>
-          </div>
-          <div className="modal-detail-row" style={{ borderBottom: 'none' }}>
-            <span className="modal-detail-label">Status</span>
-            <span className="modal-detail-value">
-              <select
-                className="filter-select"
-                value={p.status}
-                onChange={(e) => onStatusChange(p.id, e.target.value)}
-                style={{ padding: '6px 10px', fontSize: 13 }}
-              >
-                <option>Pending</option>
-                <option>In Progress</option>
-                <option>Resolved</option>
-              </select>
-            </span>
-          </div>
-        </div>
-
-        <div className="modal-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => { onStatusChange(p.id, 'In Progress'); }}>
-            Mark In Progress
-          </button>
-          <button className="btn btn-accent btn-sm" onClick={() => { onStatusChange(p.id, 'Resolved'); }}>
-            Resolve
-          </button>
-          <button className="btn btn-secondary btn-sm" onClick={onClose}>Close</button>
-        </div>
+        <select className="form-input form-select filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          {statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select className="form-input form-select filter-select" value={critFilter} onChange={e => setCritFilter(e.target.value)}>
+          {critOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
       </div>
-    </div>
+
+      {/* Results count */}
+      <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+        Showing {filtered.length} of {issues.length} issues
+      </p>
+
+      {loading ? (
+        <div className="loading-center"><div className="spinner" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state"><p className="empty-state-text">No issues found</p></div>
+      ) : (
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Issue</th>
+                <th>Department</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Upvotes</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(issue => (
+                <tr key={issue.id} onClick={() => setSelectedIssue(issue)}>
+                  <td className="table-problem-cell">
+                    <div className="table-problem-title">{issue.title}</div>
+                    <div className="table-problem-desc">
+                      <MapPin size={11} style={{ display: 'inline' }} /> {issue.locationText || 'Jaipur'}
+                    </div>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: 16, marginRight: 4 }}>{issue.department?.icon || '📋'}</span>
+                    {issue.department?.name?.split(' ')[0] || '—'}
+                  </td>
+                  <td>
+                    <span className="badge" style={{ background: dataService.getCriticalityColor(issue.criticality), color: '#fff' }}>
+                      {issue.criticality}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="badge" style={{ background: dataService.getStatusColor(issue.status), color: '#fff' }}>
+                      {dataService.getStatusLabel(issue.status)}
+                    </span>
+                    {issue.escalated && <span className="badge" style={{ background: '#EF4444', color: '#fff', marginLeft: 4 }}>🚨</span>}
+                  </td>
+                  <td style={{ fontWeight: 700 }}>👍 {issue.upvoteCount}</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {/* Municipal can resolve pending/in_progress issues */}
+                      {(isMunicipal || isSupervisor) && (issue.status === 'pending' || issue.status === 'in_progress') && (
+                        <button className="btn btn-primary btn-sm" onClick={() => setShowResolveModal(issue.id)} title="Submit Resolution">
+                          <Camera size={14} />
+                        </button>
+                      )}
+                      {/* Supervisor can verify pending_verification issues */}
+                      {isSupervisor && issue.status === 'pending_verification' && (
+                        <button className="btn btn-primary btn-sm" onClick={() => setShowVerifyModal(issue.id)} title="Verify Resolution" style={{ background: '#8B5CF6' }}>
+                          <ShieldCheck size={14} />
+                        </button>
+                      )}
+                      {/* Anyone can view */}
+                      <button className="btn-icon" onClick={() => setSelectedIssue(issue)} title="View Details">
+                        <Eye size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Issue Detail Modal */}
+      {selectedIssue && (
+        <div className="modal-backdrop" onClick={() => setSelectedIssue(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{selectedIssue.title}</h3>
+              <button className="btn-icon" onClick={() => setSelectedIssue(null)}><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <span className="badge" style={{ background: dataService.getStatusColor(selectedIssue.status), color: '#fff' }}>
+                  {dataService.getStatusLabel(selectedIssue.status)}
+                </span>
+                <span className="badge" style={{ background: dataService.getCriticalityColor(selectedIssue.criticality), color: '#fff' }}>
+                  {selectedIssue.criticality}
+                </span>
+                {selectedIssue.escalated && <span className="badge" style={{ background: '#EF4444', color: '#fff' }}>🚨 Escalated</span>}
+                <span className="badge" style={{ background: 'var(--gray-200)', color: 'var(--text-secondary)' }}>
+                  👍 {selectedIssue.upvoteCount} upvotes
+                </span>
+              </div>
+
+              <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.6 }}>
+                {selectedIssue.description}
+              </p>
+
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                <MapPin size={13} style={{ display: 'inline', verticalAlign: 'middle' }} /> {selectedIssue.locationText || 'Jaipur'}
+              </div>
+
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                📁 {selectedIssue.department?.name || '—'}
+              </div>
+
+              {selectedIssue.deadline && (
+                <div style={{ fontSize: 13, color: new Date(selectedIssue.deadline) < new Date() ? '#DC2626' : '#065F46', marginBottom: 12 }}>
+                  ⏰ Deadline: {new Date(selectedIssue.deadline).toLocaleString()}
+                  {new Date(selectedIssue.deadline) < new Date() && ' (OVERDUE)'}
+                </div>
+              )}
+
+              {/* HOD Info */}
+              {selectedIssue.department && (
+                <div style={{ padding: 12, background: 'var(--bg-tertiary)', borderRadius: 10, marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>📞 Department HOD Contact</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 4 }}>
+                    <User size={13} />
+                    <strong>{selectedIssue.department.hodName || 'Not assigned'}</strong>
+                    {selectedIssue.department.hodTitle && <span style={{ color: 'var(--text-tertiary)' }}>• {selectedIssue.department.hodTitle}</span>}
+                  </div>
+                  {selectedIssue.department.hodPhone && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 4 }}>
+                      <Phone size={13} /> <a href={`tel:${selectedIssue.department.hodPhone}`} style={{ color: 'var(--primary-600)' }}>{selectedIssue.department.hodPhone}</a>
+                    </div>
+                  )}
+                  {selectedIssue.department.hodEmail && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <Mail size={13} /> <a href={`mailto:${selectedIssue.department.hodEmail}`} style={{ color: 'var(--primary-600)' }}>{selectedIssue.department.hodEmail}</a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Resolution Photo */}
+              {selectedIssue.resolutionPhoto && (
+                <div style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>📸 Resolution Photo</p>
+                  <img src={selectedIssue.resolutionPhoto} alt="Resolution" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8 }} />
+                  {selectedIssue.resolutionNote && <p style={{ fontSize: 13, marginTop: 6, color: 'var(--text-secondary)' }}>{selectedIssue.resolutionNote}</p>}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+                {(isMunicipal || isSupervisor) && selectedIssue.status === 'pending' && (
+                  <button className="btn btn-primary btn-sm" onClick={() => handleStatusChange(selectedIssue.id, 'in_progress')}>
+                    Mark In Progress
+                  </button>
+                )}
+                {(isMunicipal || isSupervisor) && (selectedIssue.status === 'pending' || selectedIssue.status === 'in_progress') && (
+                  <button className="btn btn-primary btn-sm" style={{ background: '#10B981' }} onClick={() => { setShowResolveModal(selectedIssue.id); setSelectedIssue(null); }}>
+                    <Camera size={14} /> Submit Resolution
+                  </button>
+                )}
+                {isSupervisor && selectedIssue.status === 'pending_verification' && (
+                  <button className="btn btn-primary btn-sm" style={{ background: '#8B5CF6' }} onClick={() => { setShowVerifyModal(selectedIssue.id); setSelectedIssue(null); }}>
+                    <ShieldCheck size={14} /> Verify
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resolve Modal */}
+      {showResolveModal && (
+        <div className="modal-backdrop" onClick={() => setShowResolveModal(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📸 Submit Resolution</h3>
+              <button className="btn-icon" onClick={() => setShowResolveModal(null)}><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                Upload a photo proving the issue has been resolved. A supervisor will verify before marking it complete.
+              </p>
+              <label className="form-label">Resolution Photo URL *</label>
+              <input className="form-input" placeholder="https://... or paste image URL" value={resPhoto} onChange={e => setResPhoto(e.target.value)} />
+              <label className="form-label" style={{ marginTop: 12 }}>Resolution Note</label>
+              <textarea className="form-input" rows={3} placeholder="Describe what was done to resolve the issue..." value={resNote} onChange={e => setResNote(e.target.value)} />
+              <button className="btn btn-primary btn-block" style={{ marginTop: 16, background: '#10B981' }} onClick={handleResolve} disabled={submitting}>
+                {submitting ? 'Submitting...' : '✅ Submit for Verification'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verify Modal */}
+      {showVerifyModal && (
+        <div className="modal-backdrop" onClick={() => setShowVerifyModal(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🔍 Verify Resolution</h3>
+              <button className="btn-icon" onClick={() => setShowVerifyModal(null)}><X size={16} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                Review the resolution photo and approve or reject.
+              </p>
+              <label className="form-label">Verification Note</label>
+              <textarea className="form-input" rows={2} placeholder="Optional note..." value={resNote} onChange={e => setResNote(e.target.value)} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button className="btn btn-primary btn-block" style={{ background: '#10B981' }} onClick={() => handleVerify(true)} disabled={submitting}>
+                  <ShieldCheck size={14} /> Approve ✅
+                </button>
+                <button className="btn btn-primary btn-block" style={{ background: '#EF4444' }} onClick={() => handleVerify(false)} disabled={submitting}>
+                  <ShieldX size={14} /> Reject ❌
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
