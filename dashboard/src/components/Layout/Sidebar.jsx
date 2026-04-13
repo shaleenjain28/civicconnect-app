@@ -1,13 +1,14 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Map, AlertTriangle, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Map, AlertTriangle, Settings, LogOut, Building2, AlertOctagon } from 'lucide-react';
 import { authService } from '../../services/authService';
 
-const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/map',       icon: Map,             label: 'Map View'  },
-  { to: '/problems',  icon: AlertTriangle,   label: 'Problems'  },
-  { to: '/settings',  icon: Settings,        label: 'Settings'  },
+const baseNavItems = [
+  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/departments',  icon: Building2,       label: 'Departments' },
+  { to: '/map',          icon: Map,             label: 'Map View'  },
+  { to: '/problems',     icon: AlertTriangle,   label: 'Problems'  },
+  { to: '/settings',     icon: Settings,        label: 'Settings'  },
 ];
 
 export default function Sidebar() {
@@ -32,7 +33,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {baseNavItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -44,6 +45,18 @@ export default function Sidebar() {
             <span>{label}</span>
           </NavLink>
         ))}
+        {/* Escalated — supervisor only */}
+        {user?.role === 'supervisor' && (
+          <NavLink
+            to="/escalated"
+            className={({ isActive }) =>
+              `sidebar-nav-item sidebar-nav-escalated ${isActive ? 'active' : ''}`
+            }
+          >
+            <AlertOctagon className="sidebar-nav-icon" size={20} />
+            <span>Escalated</span>
+          </NavLink>
+        )}
       </nav>
 
       {/* Footer */}

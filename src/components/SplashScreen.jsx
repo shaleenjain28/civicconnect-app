@@ -2,9 +2,8 @@ import React from 'react';
 
 const SplashScreen = () => (
   <div className="splashScreen">
-    <span className="splashIcon">🏛️</span>
-    <h1 className="splashTitle">CivicConnect</h1>
-    <p className="splashSubtitle">Your Voice, Your Community</p>
+    <img src="/logo.png" alt="CivicConnect" className="splashLogo" />
+    <p className="splashSubtitle">Empowering Every Citizen</p>
   </div>
 );
 

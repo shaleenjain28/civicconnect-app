@@ -1,111 +1,75 @@
-// ─── Validation Middleware ───
-// Uses Zod schemas to validate request body, query params, and route params.
-// Returns 400 with clear error messages if validation fails.
+// ─── Validation Middleware v3 ───
 
-import type { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
-import { BadRequestError } from '../utils/errors.js';
+import { type Request, type Response, type NextFunction } from 'express';
+import { z, type ZodSchema } from 'zod';
 
-/**
- * Creates a middleware that validates req.body against a Zod schema.
- * Usage: router.post('/issues', validateBody(createIssueSchema), handler)
- */
-export function validateBody<T extends z.ZodTypeAny>(schema: T) {
+export function validateBody(schema: ZodSchema) {
   return (req: Request, _res: Response, next: NextFunction) => {
-    const result = schema.safeParse(req.body);
-    if (!result.success) {
-      const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-      return next(new BadRequestError(`Validation failed: ${errors.join(', ')}`));
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        const message = err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+        next({ statusCode: 400, message: `Validation error: ${message}` });
+      } else {
+        next(err);
+      }
     }
-    req.body = result.data;
-    next();
   };
 }
 
-/**
- * Creates a middleware that validates req.query against a Zod schema.
- */
-export function validateQuery<T extends z.ZodTypeAny>(schema: T) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    const result = schema.safeParse(req.query);
-    if (!result.success) {
-      const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-      return next(new BadRequestError(`Invalid query params: ${errors.join(', ')}`));
-    }
-    req.query = result.data;
-    next();
-  };
-}
-
-/**
- * Creates a middleware that validates req.params against a Zod schema.
- */
-export function validateParams<T extends z.ZodTypeAny>(schema: T) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    const result = schema.safeParse(req.params);
-    if (!result.success) {
-      const errors = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`);
-      return next(new BadRequestError(`Invalid params: ${errors.join(', ')}`));
-    }
-    req.params = result.data;
-    next();
-  };
-}
-
-// ─── Reusable Zod Schemas ───
-
-export const paginationSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const idParamSchema = z.object({
-  id: z.coerce.number().int().positive(),
-});
-
-export const nearbyQuerySchema = z.object({
-  lat: z.coerce.number().min(-90).max(90),
-  lon: z.coerce.number().min(-180).max(180),
-  radius: z.coerce.number().min(100).max(50000).default(5000), // meters, default 5km
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-});
-
-export const createIssueSchema = z.object({
-  title: z.string().min(3).max(200).transform((s) => s.trim()),
-  description: z.string().min(10).max(2000).transform((s) => s.trim()),
-  departmentId: z.number().int().positive(),
-  scope: z.enum(['local', 'city', 'state', 'country']).default('local'),
-  criticality: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-  locationText: z.string().max(500).optional(),
-  imageUrl: z.string().url().optional(),
-});
-
-export const updateStatusSchema = z.object({
-  status: z.enum(['pending', 'in_progress', 'resolved']),
-});
-
-export const createCommentSchema = z.object({
-  body: z.string().min(1).max(1000).transform((s) => s.trim()),
-});
-
+// Auth schemas
 export const signupSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6).max(100),
-  name: z.string().min(1).max(100).transform((s) => s.trim()),
-  role: z.enum(['citizen', 'municipal', 'ngo']).default('citizen'),
+  email: z.string().email('Valid email is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  name: z.string().min(1, 'Name is required').max(100),
+  role: z.enum(['citizen', 'municipal', 'supervisor', 'ngo']).default('citizen'),
+  departmentId: z.number().optional(),
 });
 
 export const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
+  password: z.string().min(1, 'Password is required'),
 });
 
+// Issue schemas
+export const createIssueSchema = z.object({
+  title: z.string().min(3).max(200),
+  description: z.string().min(10).max(2000),
+  departmentId: z.number(),
+  scope: z.enum(['local', 'city', 'state', 'country']).default('local'),
+  criticality: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
+  latitude: z.number(),
+  longitude: z.number(),
+  locationText: z.string().optional(),
+  imageUrl: z.string().optional(),
+});
+
+// Profile update schema
 export const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  phone: z.string().max(20).optional(),
-  avatarUrl: z.string().url().optional(),
+  phone: z.string().optional(),
   language: z.enum(['en', 'hi', 'gu']).optional(),
+  avatarUrl: z.string().optional(),
+});
+
+// Resolution schema
+export const resolveIssueSchema = z.object({
+  resolutionPhoto: z.string().min(1, 'Resolution photo is required'),
+  resolutionNote: z.string().max(1000).optional(),
+});
+
+// Verification schema
+export const verifyIssueSchema = z.object({
+  approved: z.boolean(),
+  note: z.string().max(500).optional(),
+});
+
+// HOD Update schema
+export const updateHodSchema = z.object({
+  hodName: z.string().optional(),
+  hodEmail: z.string().email().optional(),
+  hodPhone: z.string().optional(),
+  hodTitle: z.string().optional(),
 });

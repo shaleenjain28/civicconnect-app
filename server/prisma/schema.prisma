@@ -1,7 +1,5 @@
-// ─── Prisma Schema ───
-// This file defines the database structure. Prisma auto-generates:
-// 1. SQL migrations (prisma migrate dev)
-// 2. TypeScript client with full type safety (prisma generate)
+// ─── Prisma Schema v3 ───
+// Accountability-driven civic issue management
 
 generator client {
   provider = "prisma-client-js"
@@ -16,25 +14,29 @@ datasource db {
 // ─── User table ───
 // Synced with Supabase Auth — id matches Supabase user UUID
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  phone     String?  @unique
-  name      String
-  avatarUrl String?  @map("avatar_url")
-  role      String   @default("citizen") // citizen | municipal | ngo
-  language  String   @default("en")      // en | hi | gu
-  createdAt DateTime @default(now())     @map("created_at")
+  id           String      @id @default(uuid())
+  email        String      @unique
+  phone        String?     @unique
+  name         String
+  avatarUrl    String?     @map("avatar_url")
+  role         String      @default("citizen") // citizen | municipal | supervisor | ngo
+  language     String      @default("en")      // en | hi | gu
+  departmentId Int?        @map("department_id") // only for municipal role
+  createdAt    DateTime    @default(now())     @map("created_at")
 
-  issues        Issue[]
+  department    Department?  @relation("UserDepartment", fields: [departmentId], references: [id])
+  issues        Issue[]      @relation("ReportedIssues")
+  assignedIssues Issue[]    @relation("AssignedIssues")
   votes         Vote[]
   comments      Comment[]
   statusChanges StatusHistory[]
+  verifications Issue[]     @relation("VerifiedIssues")
 
   @@map("users")
 }
 
 // ─── Department table ───
-// 8 government departments for issue categorization
+// 5 government departments with HOD contact info
 model Department {
   id          Int     @id @default(autoincrement())
   name        String  @unique
@@ -43,31 +45,55 @@ model Department {
   color       String
   description String?
 
+  // HOD — Head of Department (admin-managed, can't be edited by HOD)
+  hodName     String?  @map("hod_name")
+  hodEmail    String?  @map("hod_email")
+  hodPhone    String?  @map("hod_phone")
+  hodTitle    String?  @map("hod_title")  // e.g. "Commissioner", "Chief Engineer"
+
   issues Issue[]
+  users  User[]  @relation("UserDepartment")
 
   @@map("departments")
 }
 
 // ─── Issue table ───
-// Core entity — citizen-reported civic problems
+// Core entity — citizen-reported civic problems with accountability
 model Issue {
-  id           Int      @id @default(autoincrement())
-  userId       String   @map("user_id")
-  title        String
-  description  String
-  departmentId Int      @map("department_id")
-  scope        String   @default("local")    // local | city | state | country
-  status       String   @default("pending")  // pending | in_progress | resolved
-  criticality  String   @default("medium")   // critical | high | medium | low
-  latitude     Float
-  longitude    Float
-  locationText String?  @map("location_text")
-  imageUrl     String?  @map("image_url")
-  upvoteCount  Int      @default(0)          @map("upvote_count")
-  createdAt    DateTime @default(now())      @map("created_at")
-  resolvedAt   DateTime?                     @map("resolved_at")
+  id              Int       @id @default(autoincrement())
+  userId          String    @map("user_id")
+  title           String
+  description     String
+  departmentId    Int       @map("department_id")
+  scope           String    @default("local")    // local | city | state | country
+  status          String    @default("pending")  // pending | in_progress | pending_verification | resolved | rejected
+  criticality     String    @default("medium")   // critical | high | medium | low
+  latitude        Float
+  longitude       Float
+  locationText    String?   @map("location_text")
+  imageUrl        String?   @map("image_url")
+  upvoteCount     Int       @default(0)          @map("upvote_count")
+  urgencyScore    Int       @default(0)          @map("urgency_score")
 
-  user          User           @relation(fields: [userId], references: [id])
+  // Deadline & Escalation
+  deadline        DateTime?
+  escalated       Boolean   @default(false)
+
+  // Assignment
+  assignedToId    String?   @map("assigned_to")
+
+  // Resolution
+  resolutionPhoto String?   @map("resolution_photo")
+  resolutionNote  String?   @map("resolution_note")
+  verifiedById    String?   @map("verified_by")
+  verifiedAt      DateTime? @map("verified_at")
+
+  createdAt       DateTime  @default(now())      @map("created_at")
+  resolvedAt      DateTime?                      @map("resolved_at")
+
+  user          User           @relation("ReportedIssues", fields: [userId], references: [id])
+  assignedTo    User?          @relation("AssignedIssues", fields: [assignedToId], references: [id])
+  verifiedBy    User?          @relation("VerifiedIssues", fields: [verifiedById], references: [id])
   department    Department     @relation(fields: [departmentId], references: [id])
   votes         Vote[]
   comments      Comment[]
@@ -77,7 +103,6 @@ model Issue {
 }
 
 // ─── Vote table ───
-// One vote per user per issue (unique constraint prevents double-voting)
 model Vote {
   id        Int      @id @default(autoincrement())
   userId    String   @map("user_id")
@@ -87,18 +112,17 @@ model Vote {
   user  User  @relation(fields: [userId], references: [id])
   issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, issueId]) // Prevents duplicate votes
+  @@unique([userId, issueId])
   @@map("votes")
 }
 
 // ─── Comment table ───
-// Discussion thread on each issue
 model Comment {
   id         Int      @id @default(autoincrement())
   issueId    Int      @map("issue_id")
   userId     String   @map("user_id")
   body       String
-  authorType String   @default("citizen") @map("author_type") // citizen | authority
+  authorType String   @default("citizen") @map("author_type") // citizen | authority | supervisor
   createdAt  DateTime @default(now())     @map("created_at")
 
   issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
@@ -108,13 +132,13 @@ model Comment {
 }
 
 // ─── Status History table ───
-// Audit trail of every status change
 model StatusHistory {
   id        Int      @id @default(autoincrement())
   issueId   Int      @map("issue_id")
   oldStatus String   @map("old_status")
   newStatus String   @map("new_status")
   changedBy String   @map("changed_by")
+  note      String?
   changedAt DateTime @default(now()) @map("changed_at")
 
   issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)

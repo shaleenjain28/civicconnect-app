@@ -1,0 +1,253 @@
+# CivicConnect v3 — Accountability-Driven Architecture Update
+
+## Core Vision Change
+
+**Before**: Generic complaint board → issues go to "municipal" → get ignored  
+**Now**: **Accountability system** → issues auto-assigned to HOD of specific department → deadline pressure → civilian gets HOD contact → resolution requires photo proof + verification
+
+```mermaid
+flowchart LR
+    A["👤 Citizen reports issue<br/>+ photo + GPS"] --> B["🤖 AI categorizes →<br/>Department + Criticality"]
+    B --> C["📋 Issue assigned to<br/>Department HOD"]
+    C --> D{"⏰ Deadline reached?"}
+    D -->|No| E["HOD works on issue<br/>Civilian can contact HOD"]
+    D -->|Yes| F["🔴 Auto-escalate to<br/>Supervisor"]
+    E --> G["HOD uploads resolution<br/>photo + marks resolved"]
+    G --> H["✅ Supervisor/Citizen<br/>verifies with tick"]
+```
+
+---
+
+## What's Changing
+
+### 1. Database Schema Updates
+
+#### Department — Add HOD info
+```diff
+model Department {
++  hodName     String?  @map("hod_name")
++  hodEmail    String?  @map("hod_email")
++  hodPhone    String?  @map("hod_phone")
++  hodTitle    String?  @map("hod_title")     // e.g. "Commissioner"
+}
+```
+
+#### Issue — Add deadlines, resolution, urgency
+```diff
+model Issue {
++  deadline       DateTime?                  // auto-calculated based on criticality
++  urgencyScore   Int      @default(0)       // upvotes + category weight
++  assignedToId   String?  @map("assigned_to")
++  resolutionPhoto String? @map("resolution_photo")
++  resolutionNote  String? @map("resolution_note")
++  verifiedBy      String? @map("verified_by")  // supervisor/citizen who verified
++  verifiedAt      DateTime? @map("verified_at")
++  escalated       Boolean @default(false)
+}
+```
+
+#### User — Add department assignment for municipal users
+```diff
+model User {
+-  role String @default("citizen")
++  role         String  @default("citizen")  // citizen | municipal | supervisor | ngo
++  departmentId Int?    @map("department_id") // only for municipal users
+}
+```
+
+### 2. Five Departments (finalized)
+
+| # | Department | Icon | Color | Deadline Weight |
+|---|-----------|------|-------|----------------|
+| 1 | 🚧 Public Works & Roads | 🚧 | `#F59E0B` | 1.0x |
+| 2 | 💧 Water & Sewerage | 💧 | `#0EA5E9` | 1.5x (higher urgency) |
+| 3 | ⚡ Electricity & Street Lighting | ⚡ | `#EAB308` | 1.5x (safety critical) |
+| 4 | 🗑️ Sanitation & Waste Management | 🗑️ | `#10B981` | 1.0x |
+| 5 | 🌳 Parks & Public Spaces | 🌳 | `#22C55E` | 0.8x |
+
+### 3. Three Dashboard Roles
+
+| Role | Can See | Can Do |
+|------|---------|--------|
+| **Supervisor** | All departments, all issues, all stats | Reassign issues between depts, verify resolutions, view escalated issues, manage HODs |
+| **Municipal** | Their department's issues only (highlighted first), city-wide map | Update status, upload resolution photo, add comments, see citizen contacts |
+| **NGO** | All issues in their focus area | View issues, add supporting comments, showcase completed projects, track impact |
+
+### 4. Deadline & Escalation System
+
+```
+Criticality → Deadline → Auto-escalation
+─────────────────────────────────────────
+🟢 Low      → 7 days  → escalate to supervisor
+🟡 Medium   → 7 days  → escalate to supervisor  
+🟠 High     → 3 days  → escalate to supervisor
+🔴 Critical → 24 hrs  → escalate to supervisor
+```
+
+### 5. Urgency Score Algorithm
+```
+urgencyScore = (upvoteCount × 10) + (categoryWeight × 100) + deadlinePenalty
+
+categoryWeight:
+  - Water/Electricity issues = 1.5
+  - Roads/Sanitation = 1.0
+  - Parks = 0.8
+
+deadlinePenalty:
+  - > 50% deadline elapsed = +50
+  - > 80% deadline elapsed = +100
+  - Deadline exceeded = +200
+```
+
+### 6. Resolution Verification Flow
+
+```mermaid
+sequenceDiagram
+    participant Muni as 🏛️ Municipal/HOD
+    participant Sys as ⚡ System
+    participant Sup as 👑 Supervisor
+    participant Cit as 👤 Citizen
+
+    Muni->>Sys: Upload resolution photo + note
+    Sys->>Sys: Status: "pending_verification"
+    Sys->>Cit: Notification: "Issue resolved - verify?"
+    Sys->>Sup: Notification: "Resolution needs verification"
+    
+    alt Supervisor verifies
+        Sup->>Sys: ✅ Tick - Confirmed resolved
+        Sys->>Sys: Status: "resolved"
+    else Citizen verifies
+        Cit->>Sys: ✅ Tick - Confirmed resolved
+        Sys->>Sys: Status: "resolved"
+    else Rejected
+        Sup->>Sys: ❌ Reject - Not resolved
+        Sys->>Sys: Status: "in_progress" (reopened)
+    end
+```
+
+### 7. Email Setup
+
+**Gmail SMTP** configured in Supabase dashboard:
+- SMTP Host: `smtp.gmail.com`
+- SMTP Port: `587`
+- SMTP User: `usefullforexternal321@gmail.com`  
+- SMTP Pass: App-specific password (generated from Google Account)
+- Sender: `CivicConnect <usefullforexternal321@gmail.com>`
+
+> [!IMPORTANT]
+> You need to generate a **Google App Password** for this. Go to: Google Account → Security → 2-Step Verification → App passwords → Create one for "CivicConnect". Then enter it in Supabase Dashboard → Auth → SMTP Settings.
+
+### 8. Original Logo Restored
+Using `/public/logo.png` (the green CivicConnect logo with two figures) everywhere instead of the 🏛️ emoji.
+
+---
+
+## Proposed Changes (Files)
+
+### Phase A: Database Schema + Seed Update
+
+#### [MODIFY] `server/prisma/schema.prisma`
+- Add HOD fields to Department (name, email, phone, title)
+- Add deadline, urgencyScore, assignedToId, resolutionPhoto, verifiedBy to Issue
+- Add departmentId to User for municipal users
+- Add new status: `pending_verification`
+
+#### [MODIFY] `server/prisma/seed.ts`
+- Replace 8 departments with 5 finalized ones
+- Add sample HOD data
+
+---
+
+### Phase B: Backend API Updates
+
+#### [MODIFY] `server/src/routes/auth.routes.ts`
+- Add `departmentId` to signup for municipal role
+- Add supervisor role support
+
+#### [MODIFY] `server/src/routes/issues.routes.ts`
+- Auto-calculate deadline on create based on criticality
+- Auto-calculate urgencyScore
+- Add `PATCH /api/issues/:id/resolve` — upload resolution photo + note
+- Add `PATCH /api/issues/:id/verify` — supervisor/citizen verification tick
+- Add `GET /api/issues/escalated` — overdue issues for supervisor
+- Filter by department for municipal users
+
+#### [NEW] `server/src/routes/hod.routes.ts`
+- `GET /api/departments/:id/hod` — get HOD contact for a department
+- `PATCH /api/departments/:id/hod` — admin/supervisor updates HOD info
+- `POST /api/departments/:id/flag-unresponsive` — citizen flags HOD
+
+#### [MODIFY] `server/src/middleware/validate.ts`
+- Add schemas for resolution, verification, HOD update
+
+---
+
+### Phase C: Citizen App Updates
+
+#### [MODIFY] `src/components/screens/AuthScreen.jsx`  
+- Use original logo instead of emoji
+- Keep the existing green theme
+
+#### [MODIFY] `src/components/AppContent.jsx`
+- Restore original logo in header
+- `SplashScreen` uses logo
+
+#### [MODIFY] `src/components/SplashScreen.jsx`
+- Use original logo.png
+
+#### [MODIFY] Issue detail modals
+- Show HOD contact info (name, phone, email)  
+- Show deadline countdown
+- Show urgency score badge
+- "Verify Resolution" button for citizens
+
+---
+
+### Phase D: Dashboard Overhaul
+
+#### [MODIFY] `dashboard/src/pages/LoginPage.jsx`
+- 3 tabs: Supervisor | Municipal | NGO
+- Municipal tab: also asks for Department dropdown
+- Use original logo
+
+#### [NEW] `dashboard/src/pages/DepartmentsPage.jsx`
+- List of 5 departments with HOD info
+- Issue counts per department
+- Click → drill-down to department issues
+
+#### [MODIFY] `dashboard/src/pages/ProblemsPage.jsx`
+- Municipal users: department-filtered view (their dept first)
+- Supervisor: all departments, escalated tab
+- "Resolve" button → upload photo + note → pending_verification
+- "Verify" button → tick to confirm (supervisor view)
+
+#### [MODIFY] `dashboard/src/pages/DashboardPage.jsx`
+- Show deadlines & escalated issues prominently
+- Department breakdown
+- Role-specific dashboard (supervisor sees everything, municipal sees their dept)
+
+#### [MODIFY] `dashboard/src/components/Layout/Sidebar.jsx`
+- Add "Departments" nav item
+- Add "Escalated" nav item (supervisor only)
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Gmail App Password**: You need to enable 2-Step Verification on `usefullforexternal321@gmail.com` and generate an App Password. Do you have this set up, or should I guide you through it?
+
+> [!IMPORTANT]
+> **The test user `test1@gmail.com`**: Is this already created in your Supabase Auth? If so, what role should they have (citizen, municipal, supervisor)?
+
+---
+
+## Execution Order
+
+| Step | What | Priority |
+|------|------|----------|
+| A | Schema update + db push + reseed departments (5) | 🔴 Now |
+| B | Backend route updates (deadlines, resolution, HOD) | 🔴 Now |
+| C | Citizen app: restore logo, add HOD contact in modals | 🟡 Next |
+| D | Dashboard: 3 roles, dept page, resolution verification | 🟡 Next |
+| E | Email: configure Gmail SMTP in Supabase | 🟢 After D |

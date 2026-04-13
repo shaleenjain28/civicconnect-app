@@ -5,14 +5,13 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
-import { validateParams, idParamSchema } from '../middleware/validate.js';
 import { NotFoundError, ConflictError } from '../utils/errors.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // ── POST /api/issues/:id/vote ──
-router.post('/:id/vote', requireAuth, validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/vote', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const issueId = Number(req.params.id);
 
@@ -44,7 +43,7 @@ router.post('/:id/vote', requireAuth, validateParams(idParamSchema), async (req:
 });
 
 // ── DELETE /api/issues/:id/vote ──
-router.delete('/:id/vote', requireAuth, validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id/vote', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const issueId = Number(req.params.id);
 
