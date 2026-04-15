@@ -3,12 +3,11 @@
 // POST /api/issues/:id/comments — Add a comment
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { NotFoundError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── GET /api/issues/:id/comments ──
 router.get('/:id/comments', async (req: Request, res: Response, next: NextFunction) => {
@@ -42,7 +41,8 @@ router.post('/:id/comments', requireAuth, async (req: Request, res: Response, ne
     const issue = await prisma.issue.findUnique({ where: { id: issueId } });
     if (!issue) throw new NotFoundError('Issue not found');
 
-    const authorType = req.user!.role === 'municipal' || req.user!.role === 'supervisor' || req.user!.role === 'ngo' ? 'authority' : 'citizen';
+    const role = String(req.user!.role || '').toLowerCase();
+    const authorType = role === 'municipal' || role === 'supervisor' || role === 'ngo' ? 'authority' : 'citizen';
 
     const comment = await prisma.comment.create({
       data: {

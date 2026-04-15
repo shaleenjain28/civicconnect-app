@@ -2,12 +2,11 @@
 // Includes HOD info, issue stats, and HOD management
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── GET /api/departments ──
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
@@ -22,10 +21,11 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
     // Add issue stats per department
     const result = await Promise.all(
       departments.map(async (dept) => {
-        const [pending, inProgress, pendingVerification, resolved, escalated] = await Promise.all([
+        const [pending, inProgress, pendingVerification, pendingUserVerification, resolved, escalated] = await Promise.all([
           prisma.issue.count({ where: { departmentId: dept.id, status: 'pending' } }),
           prisma.issue.count({ where: { departmentId: dept.id, status: 'in_progress' } }),
           prisma.issue.count({ where: { departmentId: dept.id, status: 'pending_verification' } }),
+          prisma.issue.count({ where: { departmentId: dept.id, status: 'pending_user_verification' } }),
           prisma.issue.count({ where: { departmentId: dept.id, status: 'resolved' } }),
           prisma.issue.count({ where: { departmentId: dept.id, escalated: true, status: { notIn: ['resolved'] } } }),
         ]);
@@ -36,12 +36,14 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
           pendingIssues: pending,
           activeIssues: inProgress,
           pendingVerificationIssues: pendingVerification,
+          pendingUserVerificationIssues: pendingUserVerification,
           resolvedIssues: resolved,
           escalatedIssues: escalated,
           // Also keep old names for backwards compat
           pendingCount: pending,
           inProgressCount: inProgress,
           pendingVerificationCount: pendingVerification,
+          pendingUserVerificationCount: pendingUserVerification,
           resolvedCount: resolved,
           escalatedCount: escalated,
         };
@@ -116,7 +118,7 @@ router.get('/:id/hod', async (req: Request, res: Response, next: NextFunction) =
 // Supervisor updates HOD info (admin-managed, HOD can't edit themselves)
 router.patch('/:id/hod', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (req.user!.role !== 'supervisor') {
+    if (String(req.user!.role || '').toLowerCase() !== 'supervisor') {
       throw new ForbiddenError('Only supervisors can update HOD information');
     }
 

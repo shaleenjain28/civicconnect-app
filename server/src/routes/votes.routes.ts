@@ -3,12 +3,11 @@
 // DELETE /api/issues/:id/vote  — Remove upvote
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { NotFoundError, ConflictError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── POST /api/issues/:id/vote ──
 router.post('/:id/vote', requireAuth, async (req: Request, res: Response, next: NextFunction) => {

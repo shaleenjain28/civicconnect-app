@@ -6,6 +6,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 import { UnauthorizedError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 // Server-side Supabase client (uses anon key — validation happens via getUser())
 const supabase = createClient(env.supabase.url, env.supabase.anonKey);
@@ -47,11 +48,17 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       throw new UnauthorizedError('Invalid or expired token');
     }
 
+    // Prefer DB-backed role/name (more reliable than user_metadata)
+    const dbUser = await prisma.user.findUnique({
+      where: { id: data.user.id },
+      select: { id: true, email: true, role: true },
+    });
+
     // Attach user info to request for downstream use
     req.user = {
       id: data.user.id,
-      email: data.user.email || '',
-      role: data.user.user_metadata?.role || 'citizen',
+      email: dbUser?.email || data.user.email || '',
+      role: String(dbUser?.role || data.user.user_metadata?.role || 'citizen').toLowerCase(),
     };
     req.supabaseToken = token;
 
@@ -81,10 +88,14 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
 
     const { data, error } = await supabase.auth.getUser(token);
     if (!error && data.user) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: data.user.id },
+        select: { id: true, email: true, role: true },
+      });
       req.user = {
         id: data.user.id,
-        email: data.user.email || '',
-        role: data.user.user_metadata?.role || 'citizen',
+        email: dbUser?.email || data.user.email || '',
+        role: String(dbUser?.role || data.user.user_metadata?.role || 'citizen').toLowerCase(),
       };
       req.supabaseToken = token;
     }

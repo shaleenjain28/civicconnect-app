@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { authService } from './services/authService';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
@@ -22,15 +22,8 @@ const PAGE_META = {
 };
 
 function ProtectedLayout({ theme, toggleTheme }) {
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
-
-  useEffect(() => {
-    const check = () => setCurrentPath(window.location.pathname);
-    window.addEventListener('popstate', check);
-    const observer = new MutationObserver(check);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => { window.removeEventListener('popstate', check); observer.disconnect(); };
-  }, []);
+  const location = useLocation();
+  const currentPath = location.pathname;
 
   const meta = PAGE_META[currentPath] || PAGE_META['/dashboard'];
 
@@ -49,6 +42,7 @@ function ProtectedLayout({ theme, toggleTheme }) {
             <Route path="/departments"  element={<DepartmentsPage />} />
             <Route path="/problems"     element={<ProblemsPage />} />
             <Route path="/map"          element={<MapPage />} />
+            <Route path="/escalated"    element={<ProblemsPage />} />
             <Route path="/settings"     element={<SettingsPage />} />
             <Route path="*"             element={<Navigate to="/dashboard" replace />} />
           </Routes>

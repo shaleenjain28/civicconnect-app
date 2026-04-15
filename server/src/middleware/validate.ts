@@ -2,6 +2,7 @@
 
 import { type Request, type Response, type NextFunction } from 'express';
 import { z, type ZodSchema } from 'zod';
+import { BadRequestError } from '../utils/errors.js';
 
 export function validateBody(schema: ZodSchema) {
   return (req: Request, _res: Response, next: NextFunction) => {
@@ -11,7 +12,7 @@ export function validateBody(schema: ZodSchema) {
     } catch (err) {
       if (err instanceof z.ZodError) {
         const message = err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-        next({ statusCode: 400, message: `Validation error: ${message}` });
+        next(new BadRequestError(`Validation error: ${message}`));
       } else {
         next(err);
       }

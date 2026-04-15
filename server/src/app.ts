@@ -15,6 +15,7 @@ import commentRoutes from './routes/comments.routes.js';
 import departmentRoutes from './routes/departments.routes.js';
 import userRoutes from './routes/users.routes.js';
 import aiRoutes from './routes/ai.routes.js';
+import notificationRoutes from './routes/notifications.routes.js';
 
 export function createApp() {
   const app = express();
@@ -46,6 +47,7 @@ export function createApp() {
   app.use('/api/departments', departmentRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/ai', aiRoutes);
+  app.use('/api/notifications', notificationRoutes);
 
   // ── 6. 404 handler ──
   app.use((_req, res) => {

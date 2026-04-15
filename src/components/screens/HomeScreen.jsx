@@ -17,6 +17,8 @@ const CRITICALITY_COLORS = {
 const STATUS_COLORS = {
   pending: '#F59E42',
   in_progress: '#3B82F6',
+  pending_verification: '#8B5CF6',
+  pending_user_verification: '#0EA5E9',
   resolved: '#10B981',
 };
 

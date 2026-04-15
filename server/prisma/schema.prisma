@@ -6,9 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 // ─── User table ───
@@ -31,6 +29,7 @@ model User {
   comments      Comment[]
   statusChanges StatusHistory[]
   verifications Issue[]     @relation("VerifiedIssues")
+  notifications Notification[]
 
   @@map("users")
 }
@@ -66,7 +65,7 @@ model Issue {
   description     String
   departmentId    Int       @map("department_id")
   scope           String    @default("local")    // local | city | state | country
-  status          String    @default("pending")  // pending | in_progress | pending_verification | resolved | rejected
+  status          String    @default("pending")  // pending | in_progress | pending_verification | pending_user_verification | resolved | rejected
   criticality     String    @default("medium")   // critical | high | medium | low
   latitude        Float
   longitude       Float
@@ -98,8 +97,28 @@ model Issue {
   votes         Vote[]
   comments      Comment[]
   statusHistory StatusHistory[]
+  notifications Notification[]
 
   @@map("issues")
+}
+
+// ─── Notification table ───
+// Lightweight in-app notifications (polled by clients)
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  issueId   Int?     @map("issue_id")
+  type      String   // issue_update | verification_required | system
+  title     String
+  body      String?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User   @relation(fields: [userId], references: [id])
+  issue Issue? @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
 }
 
 // ─── Vote table ───
