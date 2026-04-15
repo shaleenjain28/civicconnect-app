@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://civicconnect-empowering-every-citizen-to.onrender.com"
+      "destination": "https://civicconnect-empowering-every-citizen-to.onrender.com/api/:path*"
     }
   ],
   "headers": [

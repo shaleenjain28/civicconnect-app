@@ -31,8 +31,7 @@ export const geminiApiService = {
             });
 
             const imagePart = fileToGenerativePart(imageDataUrl);
-            const prompt =
-                'Analyze this image and generate a concise complaint title (maximum 7 words) and a detailed description. Format the output as a JSON object with \'title\' and \'description\' keys. Example: { "title": "Pothole on Main Road", "description": "There is a large pothole..." }';
+            const prompt = `Analyze this image as a civic authority inspector. Generate a concise complaint title (max 7 words). Then, write a highly detailed and descriptive problem statement (3-5 sentences). You must explicitly describe the exact hazards visible (e.g., garbage dumped in open public spaces, disease risks, danger to pedestrians). Explain why it is a severe nuisance and requires urgent municipal intervention. Format the output strictly as a JSON object with 'title' and 'description' keys. Example: { "title": "Open Garbage Dump in Public Park", "description": "A massive pile of uncollected garbage has been illegally dumped in the open public park. The waste is overflowing and rotting, creating a severe health hazard and breeding ground for diseases. No municipality workers have arrived to dispose of it, causing an unbearable stench and rendering the park unusable for residents." }`;
 
             const result = await model.generateContent([prompt, imagePart]);
             const response = await result.response;
