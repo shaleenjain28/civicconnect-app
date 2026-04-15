@@ -4,13 +4,12 @@
 // GET   /api/users/me/stats  — Get user statistics (reports, upvotes, etc.)
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody, updateProfileSchema } from '../middleware/validate.js';
 import { NotFoundError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── GET /api/users/me ──
 router.get('/me', requireAuth, async (req: Request, res: Response, next: NextFunction) => {

@@ -2,13 +2,12 @@
 // Full CRUD with deadlines, urgency scores, resolution verification, HOD assignment
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { calculateDeadline, calculateUrgencyScore } from '../services/email.service.js';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── GET /api/issues ──
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -42,16 +41,27 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       prisma.issue.count({ where }),
     ]);
 
-    // Check if any issues are overdue and mark escalated
+    // Mark overdue issues escalated (batch update to avoid per-row writes)
     const now = new Date();
-    for (const issue of issues) {
-      if (issue.deadline && issue.deadline < now && !issue.escalated &&
-          issue.status !== 'resolved' && issue.status !== 'pending_verification') {
-        await prisma.issue.update({
-          where: { id: issue.id },
-          data: { escalated: true },
-        });
-        (issue as any).escalated = true;
+    const overdueIds = issues
+      .filter(
+        (issue) =>
+          issue.deadline &&
+          issue.deadline < now &&
+          !issue.escalated &&
+          issue.status !== 'resolved' &&
+          issue.status !== 'pending_verification' &&
+          issue.status !== 'pending_user_verification'
+      )
+      .map((i) => i.id);
+
+    if (overdueIds.length) {
+      await prisma.issue.updateMany({
+        where: { id: { in: overdueIds } },
+        data: { escalated: true },
+      });
+      for (const issue of issues) {
+        if (overdueIds.includes(issue.id)) (issue as any).escalated = true;
       }
     }
 
@@ -71,14 +81,26 @@ router.get('/nearby', async (req: Request, res: Response, next: NextFunction) =>
     const userLon = Number(lon);
     const maxRadius = Number(radius);
 
+    // Bounding-box prefilter in DB to avoid scanning all issues.
+    // 1 degree latitude ~ 111,320 meters.
+    const metersPerDegreeLat = 111_320;
+    const deltaLat = maxRadius / metersPerDegreeLat;
+    const cosLat = Math.cos((userLat * Math.PI) / 180) || 0.000001;
+    const deltaLon = maxRadius / (metersPerDegreeLat * cosLat);
+
     const issues = await prisma.issue.findMany({
-      where: { status: { not: 'resolved' } },
+      where: {
+        status: { not: 'resolved' },
+        latitude: { gte: userLat - deltaLat, lte: userLat + deltaLat },
+        longitude: { gte: userLon - deltaLon, lte: userLon + deltaLon },
+      },
       include: {
         department: true,
         user: { select: { id: true, name: true } },
       },
       orderBy: { urgencyScore: 'desc' },
-      take: Math.min(Number(limit), 100),
+      // Grab a small superset; final radius filter happens below.
+      take: Math.min(Math.max(Number(limit) * 5, 100), 500),
     });
 
     // Haversine filter
@@ -94,7 +116,8 @@ router.get('/nearby', async (req: Request, res: Response, next: NextFunction) =>
         return { ...issue, distance_meters: Math.round(distance) };
       })
       .filter((issue) => issue.distance_meters <= maxRadius)
-      .sort((a, b) => b.urgencyScore - a.urgencyScore);
+      .sort((a, b) => b.urgencyScore - a.urgencyScore)
+      .slice(0, Math.min(Number(limit), 100));
 
     res.json({ data: filtered });
   } catch (err) {
@@ -201,6 +224,12 @@ router.patch('/:id/status', requireAuth, async (req: Request, res: Response, nex
     const issue = await prisma.issue.findUnique({ where: { id: Number(req.params.id) } });
     if (!issue) throw new NotFoundError('Issue not found');
 
+    // Permission: only municipal/supervisor can change workflow status
+    const role = String(req.user?.role || 'citizen').toLowerCase();
+    if (role !== 'municipal' && role !== 'supervisor') {
+      throw new ForbiddenError('Only municipal staff or supervisors can change issue status');
+    }
+
     const updated = await prisma.issue.update({
       where: { id: issue.id },
       data: {
@@ -235,6 +264,12 @@ router.patch('/:id/resolve', requireAuth, async (req: Request, res: Response, ne
 
     const issue = await prisma.issue.findUnique({ where: { id: Number(req.params.id) } });
     if (!issue) throw new NotFoundError('Issue not found');
+
+    // Permission: only municipal/supervisor can submit resolution
+    const role = String(req.user?.role || 'citizen').toLowerCase();
+    if (role !== 'municipal' && role !== 'supervisor') {
+      throw new ForbiddenError('Only municipal staff or supervisors can submit resolutions');
+    }
 
     // Mark as pending verification
     const updated = await prisma.issue.update({
@@ -275,20 +310,22 @@ router.patch('/:id/verify', requireAuth, async (req: Request, res: Response, nex
       throw new BadRequestError('Issue is not pending verification');
     }
 
-    // Only supervisor, original reporter, or authority can verify
-    const userRole = req.user!.role;
-    if (userRole !== 'supervisor' && issue.userId !== req.user!.id) {
-      throw new ForbiddenError('Only supervisor or original reporter can verify');
+    const userRole = String(req.user!.role || 'citizen').toLowerCase();
+    const isSupervisor = userRole === 'supervisor';
+
+    // Stage 1 verification (supervisor): only supervisor can approve/reject
+    if (!isSupervisor) {
+      throw new ForbiddenError('Only supervisors can verify a submitted resolution');
     }
 
     if (approved) {
       const updated = await prisma.issue.update({
         where: { id: issue.id },
         data: {
-          status: 'resolved',
+          // Supervisor verified: now waiting for citizen confirmation
+          status: 'pending_user_verification',
           verifiedById: req.user!.id,
           verifiedAt: new Date(),
-          resolvedAt: new Date(),
         },
       });
 
@@ -296,10 +333,26 @@ router.patch('/:id/verify', requireAuth, async (req: Request, res: Response, nex
         data: {
           issueId: issue.id,
           oldStatus: 'pending_verification',
-          newStatus: 'resolved',
+          newStatus: 'pending_user_verification',
           changedBy: req.user!.id,
-          note: note || 'Resolution verified ✅',
+          note: note || 'Resolution verified by supervisor — awaiting citizen confirmation',
         },
+      });
+
+      // Notify reporter + upvoters
+      const upvoters = await prisma.vote.findMany({
+        where: { issueId: issue.id },
+        select: { userId: true },
+      });
+      const recipients = Array.from(new Set([issue.userId, ...upvoters.map((v) => v.userId)]));
+      await prisma.notification.createMany({
+        data: recipients.map((userId) => ({
+          userId,
+          issueId: issue.id,
+          type: 'verification_required',
+          title: 'Issue resolution needs confirmation',
+          body: `A supervisor verified the resolution for “${issue.title}”. Please confirm if it’s resolved.`,
+        })),
       });
 
       res.json(updated);
@@ -333,11 +386,110 @@ router.patch('/:id/verify', requireAuth, async (req: Request, res: Response, nex
   }
 });
 
+// ── PATCH /api/issues/:id/confirm ──
+// Citizen reporter (or any upvoter) confirms the supervisor-verified resolution
+router.patch('/:id/confirm', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { approved, note } = req.body || {};
+    if (typeof approved !== 'boolean') throw new BadRequestError('approved is required');
+
+    const issue = await prisma.issue.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { votes: { select: { userId: true } } },
+    });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    if (issue.status !== 'pending_user_verification') {
+      throw new BadRequestError('Issue is not pending user verification');
+    }
+
+    const userId = req.user!.id;
+    const isReporter = issue.userId === userId;
+    const isUpvoter = issue.votes.some((v) => v.userId === userId);
+    if (!isReporter && !isUpvoter) {
+      throw new ForbiddenError('Only the reporter or an upvoter can confirm resolution');
+    }
+
+    if (approved) {
+      const updated = await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          status: 'resolved',
+          resolvedAt: new Date(),
+        },
+      });
+
+      await prisma.statusHistory.create({
+        data: {
+          issueId: issue.id,
+          oldStatus: 'pending_user_verification',
+          newStatus: 'resolved',
+          changedBy: userId,
+          note: note || 'Resolution confirmed by citizen ✅',
+        },
+      });
+
+      // Notify reporter + upvoters about closure
+      const recipients = Array.from(new Set([issue.userId, ...issue.votes.map((v) => v.userId)]));
+      await prisma.notification.createMany({
+        data: recipients.map((uid) => ({
+          userId: uid,
+          issueId: issue.id,
+          type: 'issue_update',
+          title: 'Issue closed',
+          body: `“${issue.title}” has been confirmed resolved and closed.`,
+        })),
+      });
+
+      res.json(updated);
+    } else {
+      const updated = await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          status: 'in_progress',
+          resolutionPhoto: null,
+          resolutionNote: null,
+          verifiedById: null,
+          verifiedAt: null,
+        },
+      });
+
+      await prisma.statusHistory.create({
+        data: {
+          issueId: issue.id,
+          oldStatus: 'pending_user_verification',
+          newStatus: 'in_progress',
+          changedBy: userId,
+          note: note || 'Citizen rejected resolution — issue reopened',
+        },
+      });
+
+      // Notify assignee/reporter that it was rejected (best-effort)
+      const recipients = Array.from(new Set([issue.userId, ...(issue.assignedToId ? [issue.assignedToId] : [])]));
+      if (recipients.length) {
+        await prisma.notification.createMany({
+          data: recipients.map((uid) => ({
+            userId: uid,
+            issueId: issue.id,
+            type: 'issue_update',
+            title: 'Resolution rejected',
+            body: `“${issue.title}” was rejected during confirmation and has been reopened.`,
+          })),
+        });
+      }
+
+      res.json(updated);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── PATCH /api/issues/:id/reassign ──
 // Supervisor reassigns issue to different department
 router.patch('/:id/reassign', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (req.user!.role !== 'supervisor') {
+    if (String(req.user!.role || '').toLowerCase() !== 'supervisor') {
       throw new ForbiddenError('Only supervisors can reassign issues');
     }
 

@@ -23,7 +23,7 @@ export const authService = {
       id: data.user.id,
       email: data.user.email,
       name: data.user.name,
-      role: data.user.role || role,
+      role: String(data.user.role || role || 'municipal').toLowerCase(),
       department: data.user.departmentName || null,
       departmentId: data.user.departmentId || null,
     };

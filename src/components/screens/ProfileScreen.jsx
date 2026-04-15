@@ -16,9 +16,27 @@ const ProfileScreen = () => {
   const [editPhone, setEditPhone] = useState(user?.phone || '');
   const [saving, setSaving] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cc_darkMode') === 'true');
+  const [notifications, setNotifications] = useState([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   useEffect(() => {
     api.get('/users/me/stats').then(setStats).catch(console.error);
+  }, []);
+
+  const loadNotifications = async () => {
+    setLoadingNotifications(true);
+    try {
+      const res = await api.get('/notifications', { unread: true });
+      setNotifications(res.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
   }, []);
 
   const handleSaveProfile = async () => {
@@ -128,12 +146,14 @@ const ProfileScreen = () => {
           </div>
 
           {/* Notifications */}
-          <div className="profile-setting-row">
+          <div className="profile-setting-row" onClick={loadNotifications} role="button" tabIndex={0}>
             <div className="profile-setting-left">
               <span className="profile-setting-icon">🔔</span>
               <span>{t('notifications')}</span>
             </div>
-            <span className="profile-setting-value">On</span>
+            <span className="profile-setting-value">
+              {loadingNotifications ? '...' : `${notifications.length} unread`}
+            </span>
           </div>
 
           {/* Clear Cache */}
@@ -144,6 +164,59 @@ const ProfileScreen = () => {
             </div>
             <span className="profile-setting-arrow">›</span>
           </div>
+        </div>
+
+        {/* Unread notifications list */}
+        <div className="profile-section">
+          <h3 className="profile-section-title">🔔 Notifications</h3>
+          {loadingNotifications ? (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Loading...</p>
+          ) : notifications.length === 0 ? (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No unread notifications.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {notifications.map((n) => (
+                <div key={n.id} style={{ background: 'var(--bg-tertiary)', borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{n.title}</div>
+                  {n.body && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{n.body}</div>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    {n.issueId && (
+                      <button
+                        className="auth-submit-btn"
+                        style={{ flex: 1, padding: '10px 12px', fontSize: 13 }}
+                        onClick={async () => {
+                          try {
+                            await api.patch(`/issues/${n.issueId}/confirm`, { approved: true });
+                            await api.patch(`/notifications/${n.id}/read`);
+                            loadNotifications();
+                            alert('Confirmed as resolved.');
+                          } catch (err) {
+                            alert(err.message);
+                          }
+                        }}
+                      >
+                        ✅ Confirm
+                      </button>
+                    )}
+                    <button
+                      className="profile-cancel-btn"
+                      style={{ flex: 1, padding: '10px 12px', fontSize: 13 }}
+                      onClick={async () => {
+                        try {
+                          await api.patch(`/notifications/${n.id}/read`);
+                          loadNotifications();
+                        } catch (err) {
+                          alert(err.message);
+                        }
+                      }}
+                    >
+                      Mark read
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Account */}

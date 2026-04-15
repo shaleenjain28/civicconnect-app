@@ -11,6 +11,8 @@ import MyIssueDetailModal from '../modals/MyIssueDetailModal';
 const STATUS_COLORS = {
   pending: '#F59E42',
   in_progress: '#3B82F6',
+  pending_verification: '#8B5CF6',
+  pending_user_verification: '#0EA5E9',
   resolved: '#10B981',
 };
 
@@ -45,8 +47,15 @@ const MyIssuesScreen = () => {
     }
   };
 
-  const filters = ['All', 'pending', 'in_progress', 'resolved'];
-  const filterLabels = { All: t('all'), pending: t('pending'), in_progress: t('inProgress'), resolved: t('resolved') };
+  const filters = ['All', 'pending', 'in_progress', 'pending_verification', 'pending_user_verification', 'resolved'];
+  const filterLabels = {
+    All: t('all'),
+    pending: t('pending'),
+    in_progress: t('inProgress'),
+    pending_verification: 'Supervisor Verification',
+    pending_user_verification: 'Needs Confirmation',
+    resolved: t('resolved'),
+  };
 
   let filteredIssues = [...issues];
   if (filter !== 'All') filteredIssues = filteredIssues.filter((i) => i.status === filter);

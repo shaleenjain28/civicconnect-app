@@ -12,10 +12,13 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   DATABASE_URL: z.string().optional(),
+  DIRECT_URL: z.string().optional(),
 
   GEMINI_API_KEY: z.string().min(1),
 
-  CORS_ORIGINS: z.string().default('http://localhost:5173,http://localhost:5174'),
+  // Some deploy configs use CORS_ORIGIN (single) vs CORS_ORIGINS (csv)
+  CORS_ORIGINS: z.string().optional(),
+  CORS_ORIGIN: z.string().optional(),
 
   JWT_SECRET: z.string().optional(),
 });
@@ -39,7 +42,10 @@ function loadEnv() {
     },
     databaseUrl: parsed.data.DATABASE_URL || '',
     geminiApiKey: parsed.data.GEMINI_API_KEY,
-    corsOrigins: parsed.data.CORS_ORIGINS.split(',').map((s) => s.trim()),
+    corsOrigins: (parsed.data.CORS_ORIGINS || parsed.data.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     jwtSecret: parsed.data.JWT_SECRET || '',
   };
 }

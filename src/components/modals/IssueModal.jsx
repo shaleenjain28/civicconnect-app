@@ -8,6 +8,7 @@ const IssueModal = ({ issue, onClose, onUpvote }) => {
   const [isDrafting, setIsDrafting] = useState(false);
   const [hodInfo, setHodInfo] = useState(null);
   const [loadingHod, setLoadingHod] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   // Fetch HOD contact info for this issue's department
   useEffect(() => {
@@ -66,8 +67,14 @@ const IssueModal = ({ issue, onClose, onUpvote }) => {
 
         {/* Badges Row */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: issue.status === 'resolved' ? '#10B981' : issue.status === 'in_progress' ? '#3B82F6' : issue.status === 'pending_verification' ? '#8B5CF6' : '#F59E42', color: '#fff' }}>
-            {issue.status === 'in_progress' ? 'In Progress' : issue.status === 'pending_verification' ? 'Verification Pending' : issue.status || 'pending'}
+          <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: issue.status === 'resolved' ? '#10B981' : issue.status === 'pending_user_verification' ? '#0EA5E9' : issue.status === 'in_progress' ? '#3B82F6' : issue.status === 'pending_verification' ? '#8B5CF6' : '#F59E42', color: '#fff' }}>
+            {issue.status === 'in_progress'
+              ? 'In Progress'
+              : issue.status === 'pending_verification'
+                ? 'Supervisor Verification'
+                : issue.status === 'pending_user_verification'
+                  ? 'Needs Your Confirmation'
+                  : issue.status || 'pending'}
           </span>
           {issue.criticality && (
             <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: issue.criticality === 'critical' ? '#DC2626' : issue.criticality === 'high' ? '#EA580C' : issue.criticality === 'medium' ? '#CA8A04' : '#16A34A', color: '#fff', textTransform: 'capitalize' }}>
@@ -132,6 +139,53 @@ const IssueModal = ({ issue, onClose, onUpvote }) => {
         <button type="button" className="modalButton addIssueSubmitButton" onClick={handleUpvote} style={{ marginBottom: 8 }}>
           <span className="modalButtonText">👍 Upvote Issue</span>
         </button>
+
+        {/* Citizen confirmation (after supervisor verifies) */}
+        {issue.status === 'pending_user_verification' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <button
+              type="button"
+              className="modalButton"
+              onClick={async () => {
+                setConfirming(true);
+                try {
+                  await api.patch(`/issues/${issue.id}/confirm`, { approved: true });
+                  alert('Thanks — confirmed as resolved.');
+                  onClose();
+                } catch (err) {
+                  alert(err.message);
+                } finally {
+                  setConfirming(false);
+                }
+              }}
+              disabled={confirming}
+              style={{ background: '#10B981', color: '#fff' }}
+            >
+              <span className="modalButtonText">{confirming ? 'Confirming...' : '✅ Confirm Resolved'}</span>
+            </button>
+            <button
+              type="button"
+              className="modalButton"
+              onClick={async () => {
+                const note = prompt('Optional: why is it not resolved?') || '';
+                setConfirming(true);
+                try {
+                  await api.patch(`/issues/${issue.id}/confirm`, { approved: false, note });
+                  alert('Rejected — issue reopened.');
+                  onClose();
+                } catch (err) {
+                  alert(err.message);
+                } finally {
+                  setConfirming(false);
+                }
+              }}
+              disabled={confirming}
+              style={{ background: '#EF4444', color: '#fff' }}
+            >
+              <span className="modalButtonText">❌ Not Resolved</span>
+            </button>
+          </div>
+        )}
 
         {/* AI Draft Button */}
         <button type="button" className="modalButton geminiButton" onClick={handleDraftRequest} disabled={isDrafting} style={{ marginBottom: 8 }}>

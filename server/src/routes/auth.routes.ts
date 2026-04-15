@@ -3,14 +3,13 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { supabase } from '../services/supabaseAdmin.js';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody, signupSchema, loginSchema } from '../middleware/validate.js';
 import { validateEmail } from '../services/email.service.js';
 import { BadRequestError, UnauthorizedError } from '../utils/errors.js';
+import { prisma } from '../prisma.js';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ── POST /api/auth/signup ──
 router.post('/signup', validateBody(signupSchema), async (req: Request, res: Response, next: NextFunction) => {
@@ -43,12 +42,12 @@ router.post('/signup', validateBody(signupSchema), async (req: Request, res: Res
     // Create user in our DB
     const dbUser = await prisma.user.upsert({
       where: { id: data.user.id },
-      update: { name, role, departmentId: role === 'municipal' ? departmentId : null },
+      update: { name, role: String(role).toLowerCase(), departmentId: role === 'municipal' ? departmentId : null },
       create: {
         id: data.user.id,
         email,
         name,
-        role,
+        role: String(role).toLowerCase(),
         departmentId: role === 'municipal' ? departmentId : null,
       },
     });
@@ -85,7 +84,7 @@ router.post('/login', validateBody(loginSchema), async (req: Request, res: Respo
       // User might exist with a different Supabase ID (e.g., re-created in Supabase)
       // Use upsert on email to handle gracefully
       const name = data.user.user_metadata?.name || email.split('@')[0];
-      const role = data.user.user_metadata?.role || 'citizen';
+      const role = String(data.user.user_metadata?.role || 'citizen').toLowerCase();
 
       dbUser = await prisma.user.upsert({
         where: { email: data.user.email! },

@@ -159,12 +159,12 @@ export const dataService = {
   },
 
   getStatusColor(status) {
-    const map = { pending: '#F59E0B', in_progress: '#3B82F6', pending_verification: '#8B5CF6', resolved: '#10B981' };
+    const map = { pending: '#F59E0B', in_progress: '#3B82F6', pending_verification: '#8B5CF6', pending_user_verification: '#0EA5E9', resolved: '#10B981' };
     return map[status] || '#9CA3AF';
   },
 
   getStatusLabel(status) {
-    const map = { pending: 'Pending', in_progress: 'In Progress', pending_verification: 'Verification', resolved: 'Resolved' };
+    const map = { pending: 'Pending', in_progress: 'In Progress', pending_verification: 'Supervisor Verification', pending_user_verification: 'User Confirmation', resolved: 'Resolved' };
     return map[status] || status;
   },
 };
