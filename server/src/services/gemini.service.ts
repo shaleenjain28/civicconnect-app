@@ -59,6 +59,26 @@ TASK 3 — GENERATE DETAILS:
 Return ONLY a valid JSON object, no markdown, no code blocks:
 {"title": "...", "description": "...", "department": "Water Department", "criticality": "high"}`;
 
+  const validDepts = [
+    'Water Department', 'Roads & Infrastructure', 'Electricity',
+    'Sanitation & Waste', 'Traffic & Transport', 'Urban Development',
+    'Parks & Environment', 'General Administration',
+  ];
+  const validCriticalities = ['critical', 'high', 'medium', 'low'];
+
+  const parseAIResponse = (text: string): AIAnalysisResult => {
+    // Strip markdown code fences, leading/trailing whitespace
+    let clean = text.trim();
+    clean = clean.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    // Try to extract JSON object if surrounded by other text
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (jsonMatch) clean = jsonMatch[0];
+    const parsed = JSON.parse(clean) as AIAnalysisResult;
+    if (!validDepts.includes(parsed.department)) parsed.department = 'General Administration';
+    if (!validCriticalities.includes(parsed.criticality)) parsed.criticality = 'medium';
+    return parsed;
+  };
+
   try {
     const result = await model.generateContent([
       prompt,
@@ -66,36 +86,30 @@ Return ONLY a valid JSON object, no markdown, no code blocks:
     ]);
 
     const text = result.response.text().trim();
-    // Clean potential markdown wrapping
-    const cleanJson = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    const parsed = JSON.parse(cleanJson) as AIAnalysisResult;
-
-    // Validate the department is from our list
-    const validDepts = [
-      'Water Department', 'Roads & Infrastructure', 'Electricity',
-      'Sanitation & Waste', 'Traffic & Transport', 'Urban Development',
-      'Parks & Environment', 'General Administration',
-    ];
-
-    if (!validDepts.includes(parsed.department)) {
-      parsed.department = 'General Administration';
-    }
-
-    const validCriticalities = ['critical', 'high', 'medium', 'low'];
-    if (!validCriticalities.includes(parsed.criticality)) {
-      parsed.criticality = 'medium';
-    }
-
+    log(`Gemini raw response (first 500 chars): ${text.substring(0, 500)}`);
+    const parsed = parseAIResponse(text);
     log(`AI Analysis: "${parsed.title}" → ${parsed.department} [${parsed.criticality}]`);
     return parsed;
-  } catch (error) {
-    log(`Gemini analysis failed: ${error}`, 'error');
-    return {
-      title: 'Civic Issue Reported',
-      description: 'An issue has been reported. Please review the attached image for details.',
-      department: 'General Administration',
-      criticality: 'medium',
-    };
+  } catch (error: any) {
+    log(`Gemini primary model failed: ${error?.message || error}`, 'error');
+
+    // Retry with fallback model
+    try {
+      log('Retrying with fallback model gemini-1.5-flash...');
+      const fallback = genAI.getGenerativeModel({ model: 'gemini-1.5-flash', safetySettings: SAFETY_SETTINGS });
+      const result = await fallback.generateContent([
+        prompt,
+        { inlineData: { data: imageBase64, mimeType } },
+      ]);
+      const text = result.response.text().trim();
+      log(`Fallback raw response (first 500 chars): ${text.substring(0, 500)}`);
+      const parsed = parseAIResponse(text);
+      log(`Fallback AI Analysis: "${parsed.title}" → ${parsed.department} [${parsed.criticality}]`);
+      return parsed;
+    } catch (fallbackErr: any) {
+      log(`Gemini fallback also failed: ${fallbackErr?.message || fallbackErr}`, 'error');
+      throw new Error(`AI analysis failed: ${error?.message || 'Unknown error'}. Fallback also failed: ${fallbackErr?.message || 'Unknown'}`);
+    }
   }
 }
 

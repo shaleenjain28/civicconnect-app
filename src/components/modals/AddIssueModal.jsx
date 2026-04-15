@@ -112,12 +112,16 @@ const AddIssueModal = ({ onClose, onAddIssue, userLocation }) => {
 
         {/* Image Upload */}
         <label className="addIssueLabel">{t('uploadPhoto')}</label>
-        <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFileChange} />
+        <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
         <div className="addIssueImagePicker" onClick={() => fileInputRef.current?.click()} role="button" tabIndex={0}>
           {selectedImage ? (
             <img src={selectedImage} alt="Selected" style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 12 }} />
           ) : (
-            <span className="addIssueImagePickerText">{t('takePhoto')}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '24px 0' }}>
+              <span style={{ fontSize: 36 }}>📸</span>
+              <span className="addIssueImagePickerText">{t('takePhoto')}</span>
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>Tap to choose from gallery or take a photo</span>
+            </div>
           )}
         </div>
 
